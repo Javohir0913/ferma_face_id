@@ -26,7 +26,16 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_PATH = Path(SNAPSHOT_DIR)
 SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
 
-GATE_LABELS = {"kirish": "✅ Kirish", "chiqish": "🚪 Chiqish"}
+GATE_LABELS = {"kirish": "Kirish", "chiqish": "Chiqish"}
+
+UZ_MONTHS = (
+    "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+    "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr",
+)
+
+
+def _format_time_uz(dt: datetime) -> str:
+    return f"{dt.day} {UZ_MONTHS[dt.month - 1]} {dt.strftime('%H:%M')}"
 
 
 def _client_ip(request: Request) -> str:
@@ -131,15 +140,14 @@ async def handle_event(gate: str, request: Request) -> dict:
                     return {"status": "duplicate"}
                 logger.exception("%s: DB ga yozishda xato", gate)
 
-            time_label = event_time.strftime("%d.%m.%Y %H:%M:%S")
+            time_label = _format_time_uz(event_time)
             label = GATE_LABELS.get(gate, gate)
             if matched:
-                conf_label = f" | {confidence:.1f}%" if confidence is not None else ""
                 display_name = person_name or "Noma’lum F.I.O"
-                text = f"{label}: {display_name} | {time_label}{conf_label}"
+                text = f"{label}\n\n{time_label}\n\n{display_name}"
                 await telegram.notify(text, image_bytes=image_bytes)
             elif send_unmatched_alert:
-                text = f"⚠️ Noma’lum odam ({gate}) aniqlandi | {time_label}"
+                text = f"{label}\n\n{time_label}\n\nNoma’lum odam"
                 await telegram.notify(text, image_bytes=image_bytes)
             elif not has_outcome:
                 logger.info("%s: parse qilinmagan event DB'ga yozildi (debug), xabar yuborilmadi", gate)
