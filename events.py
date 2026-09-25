@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_PATH = Path(SNAPSHOT_DIR)
 SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
 
-GATE_LABELS = {"kirish": "Kirish", "chiqish": "Chiqish"}
+GATE_LABELS = {"kirish": "🟢 Kirish", "chiqish": "🔴 Chiqish"}
 
 UZ_MONTHS = (
     "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
@@ -115,6 +115,24 @@ async def handle_event(gate: str, request: Request) -> dict:
                 except Exception:
                     logger.exception("%s: debounce tekshiruvida xato", gate)
 
+            # Insertdan oldin tekshiriladi: joriy event hali bazada yo'q, shuning
+            # uchun bugun undan oldingi kirish topilmasa — bu birinchi kirish.
+            first_today = False
+            if matched and gate == "kirish" and employee_no:
+                local_time = event_time.replace(tzinfo=None)
+                try:
+                    prev = await database.fetch_one(
+                        events.select()
+                        .where(events.c.gate == "kirish")
+                        .where(events.c.employee_no == employee_no)
+                        .where(events.c.event_time >= local_time.replace(hour=0, minute=0, second=0, microsecond=0))
+                        .where(events.c.event_time < local_time)
+                        .limit(1)
+                    )
+                    first_today = prev is None
+                except Exception:
+                    logger.exception("%s: birinchi kirish tekshiruvida xato", gate)
+
             try:
                 await database.execute(
                     events.insert().values(
@@ -144,10 +162,12 @@ async def handle_event(gate: str, request: Request) -> dict:
             label = GATE_LABELS.get(gate, gate)
             if matched:
                 display_name = person_name or "Noma’lum F.I.O"
+                if first_today:
+                    display_name += f" ⭐️ ({event_time.day}.{event_time.month} 1-marta)"
                 text = f"{label}\n\n{time_label}\n\n{display_name}"
                 await telegram.notify(text, image_bytes=image_bytes)
             elif send_unmatched_alert:
-                text = f"{label}\n\n{time_label}\n\nNoma’lum odam"
+                text = f"{label}\n\n{time_label}\n\n⚠️ Noma’lum odam"
                 await telegram.notify(text, image_bytes=image_bytes)
             elif not has_outcome:
                 logger.info("%s: parse qilinmagan event DB'ga yozildi (debug), xabar yuborilmadi", gate)
