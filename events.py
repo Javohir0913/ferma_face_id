@@ -163,7 +163,7 @@ async def handle_event(gate: str, request: Request) -> dict:
             if matched:
                 display_name = person_name or "Noma’lum F.I.O"
                 if first_today:
-                    display_name += f" ⭐️ ({event_time.day}.{event_time.month} 1-marta)"
+                    display_name += " ⭐️ Bugun 1-marta"
                 text = f"{label}\n\n{time_label}\n\n{display_name}"
                 await telegram.notify(text, image_bytes=image_bytes)
             elif send_unmatched_alert:
