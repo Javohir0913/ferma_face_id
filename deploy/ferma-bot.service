@@ -1,0 +1,17 @@
+[Unit]
+Description=Ferma - davomat boti (Telegram polling + kunlik hisobot)
+After=network.target ferma.service
+
+[Service]
+User=aduzkip
+Group=aduzkip
+WorkingDirectory=/home/aduzkip/ferma
+Environment=PYTHONPATH=/home/aduzkip/ferma
+ExecStart=/home/aduzkip/ferma/.venv/bin/python -m davomat.bot
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

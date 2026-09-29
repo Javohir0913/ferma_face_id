@@ -115,3 +115,28 @@ orqali ajratiladi. Birinchi ishga tushirishda jadval avtomatik yaratiladi.
 - `GET /health` — tekshiruv uchun (`{"status": "ok"}`)
 
 `/docs`, `/redoc`, `/openapi.json` — xavfsizlik uchun o'chirilgan.
+
+## Davomat (Mini App + Web + bot)
+
+- Sahifa: `https://api.ravnaqfarm.uz/davomat/` (Telegram Mini App ham shu manzil).
+- API: `/api/davomat/...` — har bir endpoint autentifikatsiyani tekshiradi.
+- Bot: `ferma-bot.service` (`deploy/ferma-bot.service`) — `/start`, biriktirish so'rovlari,
+  kunlik HTML hisobot (Sozlamalar → «Kunlik xulosa vaqti», default 08:00), istisno xabarlari.
+- Xom `events` jadvaliga tegilmaydi; hisob har safar qayta hisoblanadi.
+
+`.env` qo'shimcha kalitlari:
+
+```
+SESSION_SECRET=         # uzun tasodifiy qator (majburiy)
+SUPERADMIN_TELEGRAM_ID= # yagona super admin
+ADMIN_TELEGRAM_IDS=     # ixtiyoriy boshlang'ich adminlar
+PUBLIC_BASE_URL=https://api.ravnaqfarm.uz
+BOT_USERNAME=           # masalan ravnaqfarm_bot
+COOKIE_SECURE=1
+DEV_LOGIN=0             # serverda doim 0
+```
+
+Huquqlar: super admin (bitta, .env dan) admin beradi; admin barcha xodimlarning
+keldi-ketdisini ko'radi va tuzatadi; qolganlar faqat o'zinikini ko'radi.
+
+Testlar: `python -m pytest tests/`

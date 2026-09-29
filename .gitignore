@@ -7,3 +7,6 @@ data/*.db
 data/*.db-journal
 static/snapshots/*
 !static/snapshots/.gitkeep
+data/checkins/
+data/*.db-wal
+data/*.db-shm

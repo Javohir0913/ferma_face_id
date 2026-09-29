@@ -5,3 +5,6 @@ databases[aiosqlite]
 sqlalchemy
 httpx
 python-dotenv
+openpyxl
+tzdata
+python-multipart
