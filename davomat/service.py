@@ -14,7 +14,7 @@ from sqlalchemy import and_, select
 from config import PUBLIC_BASE_URL, TIMEZONE
 from database import (
     app_users, audit_log, checkins, corrections, database, employee_roles,
-    employees, events, resolutions, roles, settings, tg_locations, web_credentials,
+    employees, events, notifications, resolutions, roles, settings, tg_locations, web_credentials,
 )
 from davomat.engine import IN, OUT, Correction, Punch, RoleParams, Shift, compute_with_roles
 
@@ -438,8 +438,25 @@ def rights_text(rights: dict) -> str:
     return "\n• ".join([""] + parts) if parts else " yo'q"
 
 
-async def notify_linked(uid: int, reset: bool = False) -> None:
-    """Biriktirilganda (yoki parol qayta berilganda) foydalanuvchining Telegramiga xabar."""
+def _creds_key(uid: int) -> str:
+    return f"creds_delivered:{uid}"
+
+
+async def credentials_delivered(uid: int) -> bool:
+    return bool(await database.fetch_one(select(notifications).where(notifications.c.key == _creds_key(uid))))
+
+
+async def _set_creds_delivered(uid: int, delivered: bool) -> None:
+    await database.execute(notifications.delete().where(notifications.c.key == _creds_key(uid)))
+    if delivered:
+        await database.execute(notifications.insert().values(
+            key=_creds_key(uid), kind="creds", status="resolved", created_at=datetime.utcnow()))
+
+
+async def notify_linked(uid: int, reset: bool = False) -> bool:
+    """Biriktirilganda (yoki parol qayta berilganda) foydalanuvchining Telegramiga xabar.
+    Yetib borganmi — qaytaradi va eslab qoladi: foydalanuvchi botga hali /start yozmagan
+    bo'lsa xabar yetmaydi, keyin /start yozganda parol avtomatik qayta yuboriladi."""
     import telegram
     rights = await rights_of(uid)
     login, password = await issue_credentials(uid, rights["name"], reset=reset)
@@ -448,10 +465,15 @@ async def notify_linked(uid: int, reset: bool = False) -> None:
     text = f"{head}\n\nHuquqlaringiz:{rights_text(rights)}"
     if password:
         text += (f"\n\n🌐 Web orqali kirish: {web}\nLogin: <code>{html.escape(login)}</code>\n"
-                 f"Parol: <code>{html.escape(password)}</code>\n\nKirgandan keyin «Profil» bo'limida login va parolni o'zgartiring.")
+                 f"Parol: <code>{html.escape(password)}</code>\n\nKirgandan keyin «Profil» bo'limida login va parolni o'zgartiring."
+                 f"\nParolni unutsangiz — botga /parol yozing.")
     else:
-        text += f"\n\n🌐 Web: {web}\nLogin: <code>{html.escape(login)}</code> (parol avvalgidek)"
-    await telegram.send_to(uid, text, main_keyboard(rights))
+        text += f"\n\n🌐 Web: {web}\nLogin: <code>{html.escape(login)}</code> (parol avvalgidek, unutgan bo'lsangiz — /parol)"
+    res = await telegram.send_to(uid, text, main_keyboard(rights))
+    delivered = bool(res and res.get("ok"))
+    if password:
+        await _set_creds_delivered(uid, delivered)
+    return delivered
 
 
 async def notify_unlinked(uid: int) -> None:

@@ -16,8 +16,12 @@ from main import app
 SENT: list[tuple] = []
 
 
+BLOCKED: set[int] = set()  # botga hali /start yozmagan foydalanuvchilar
+
+
 async def _fake_send_to(chat_id, text, reply_markup=None):
     SENT.append((int(chat_id), text, reply_markup))
+    return {"ok": int(chat_id) not in BLOCKED}
 
 
 async def _fake_notify(text, image_bytes=None, image_name="x.jpg"):
@@ -304,3 +308,37 @@ def test_access_levels(env):
     with pytest.raises(sqlite3.IntegrityError):
         con.execute("UPDATE app_users SET level='superadmin' WHERE telegram_user_id=802")
     con.close()
+
+
+def test_credentials_resent_on_start_and_parol(env):
+    loop = env
+    from davomat import auth
+
+    async def scenario():
+        async with await _client() as c:
+            sup = {"Authorization": "Bearer " + auth.make_token(900, "S")}
+            # Foydalanuvchi botga hali /start yozmagan — biriktirish xabari yetib bormaydi.
+            BLOCKED.add(4242)
+            SENT.clear()
+            r = await c.post("/api/davomat/admin/users", headers=sup, json={"telegram_user_id": 4242, "name": "Yangi Admin", "level": "admin"})
+            assert r.status_code == 200
+            assert not await service.credentials_delivered(4242)
+            # /start — parol avtomatik qayta yuboriladi.
+            BLOCKED.discard(4242)
+            SENT.clear()
+            await bot.handle_update({"update_id": 90, "message": {"chat": {"type": "private", "id": 4242},
+                                     "from": {"id": 4242, "first_name": "Yangi"}, "text": "/start"}})
+            assert any(m[0] == 4242 and "Parol:" in m[1] for m in SENT)
+            assert await service.credentials_delivered(4242)
+            # Ikkinchi /start — parol takror yuborilmaydi, oddiy salom.
+            SENT.clear()
+            await bot.handle_update({"update_id": 91, "message": {"chat": {"type": "private", "id": 4242},
+                                     "from": {"id": 4242, "first_name": "Yangi"}, "text": "/start"}})
+            assert SENT and "Parol:" not in SENT[-1][1] and "Assalomu alaykum" in SENT[-1][1]
+            # /parol — yangi parol.
+            SENT.clear()
+            await bot.handle_update({"update_id": 92, "message": {"chat": {"type": "private", "id": 4242},
+                                     "from": {"id": 4242, "first_name": "Yangi"}, "text": "/parol"}})
+            assert any(m[0] == 4242 and "Parolingiz yangilandi" in m[1] and "Parol:" in m[1] for m in SENT)
+
+    run(loop, scenario())

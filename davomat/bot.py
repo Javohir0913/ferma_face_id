@@ -74,6 +74,12 @@ async def handle_start(msg: dict) -> None:
     full_name = " ".join(filter(None, [user.get("first_name"), user.get("last_name")]))
     rights = await service.rights_of(uid)
     if rights["level"] or rights["employee_no"]:
+        text_cmd = (msg.get("text") or "").strip().lower()
+        # Login-parol hali yetib bormagan bo'lsa (botga /start yozilmagan edi) yoki /parol so'ralsa — yangisini yuboramiz.
+        if text_cmd.startswith("/parol") or not await service.credentials_delivered(uid):
+            await service.notify_linked(uid, reset=True)
+            await service.audit(uid, "reset_password", "web_credentials", uid, None, {"sabab": "bot: " + (text_cmd[:20] or "start")})
+            return
         text = f"Assalomu alaykum, {html.escape(rights['name'] or full_name)}!\n\nHuquqlaringiz:{service.rights_text(rights)}"
         if rights["employee_no"]:
             text += "\n\nIshni boshlash/tugatishni pastdagi tugmalar orqali belgilang (joylashuv va kamera majburiy)."
