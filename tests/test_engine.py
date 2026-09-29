@@ -234,3 +234,15 @@ def test_milker_day_changes_at_3am():
     ps = [P("2026-09-01 18:00:00", IN), P("2026-09-02 02:59:00", OUT), P("2026-09-02 03:01:00", IN)]
     shifts = compute("1", ps, MILK, NOW)
     assert [s.work_date for s in shifts] == [date(2026, 9, 1), date(2026, 9, 2)]
+
+
+def test_report_sorted_least_worked_first():
+    from davomat.engine import Shift
+    from davomat.report import daily_html
+    d = date(2026, 9, 1)
+    mk = lambda emp, inside: Shift(employee_no=emp, work_date=d, role="standart", shift_type="kun", inside_sec=inside,
+                                   span_sec=inside, kirish=datetime(2026, 9, 1, 8), chiqish=datetime(2026, 9, 1, 17),
+                                   status="yopildi" if inside is not None else "to'liq emas")
+    html = daily_html(d, [mk("A", 3600), mk("B", None), mk("C", 9 * 3600), mk("D", 5 * 3600)], lambda e: e, {})
+    order = [html.index(f"<td>{e}") for e in ("A", "D", "C", "B")]
+    assert order == sorted(order)

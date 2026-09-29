@@ -27,6 +27,9 @@ ROLE_DEFAULTS = {
     "qorovul": ("Qorovul", {"mode": "shift", "day_boundary": "12:00", "debounce_sec": 60, "max_shift_hours": 14,
                             "day_window": [6, 13], "night_window": [17, 24]}),
     "tashqi": ("Tashqi ish", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
+    "administrator": ("Administrator", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
+    "direktor": ("Direktor", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
+    "taminotchi": ("Ta'minotchi", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
 }
 
 SETTING_DEFAULTS = {

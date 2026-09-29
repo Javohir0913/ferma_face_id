@@ -10,8 +10,10 @@ from davomat.engine import ST_CLOSED, ST_INCOMPLETE, ST_OPEN, Shift
 
 OYLAR = ("yanvar", "fevral", "mart", "aprel", "may", "iyun",
          "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr")
-ROLE_ORDER = ["standart", "soguvchi", "qorovul", "tashqi"]
-ROLE_TITLE = {"standart": "👷 Standart", "soguvchi": "🐄 Sog'uvchilar", "qorovul": "🛡 Qorovullar", "tashqi": "🚜 Tashqi ish"}
+ROLE_ORDER = ["direktor", "administrator", "standart", "soguvchi", "qorovul", "taminotchi", "tashqi"]
+ROLE_TITLE = {"direktor": "👔 Direktor", "administrator": "🗂 Administratorlar", "standart": "👷 Standart",
+              "soguvchi": "🐄 Sog'uvchilar", "qorovul": "🛡 Qorovullar", "taminotchi": "🚚 Ta'minotchilar",
+              "tashqi": "🚜 Tashqi ish"}
 STATUS_MARK = {ST_CLOSED: "", ST_OPEN: " ⏳", ST_INCOMPLETE: " ⚠️", "tasdiqlanmagan": " ❓", "qo'lda tuzatilgan": " ✏️"}
 
 
@@ -52,7 +54,10 @@ def daily_html(day: date, shifts: list[Shift], name_of, role_names: dict[str, st
     for s in shifts:
         by_role.setdefault(s.role, []).append(s)
     for role in ROLE_ORDER + sorted(set(by_role) - set(ROLE_ORDER)):
-        items = sorted(by_role.get(role, []), key=lambda s: (s.kirish or s.start, name_of(s.employee_no)))
+        # Fermada ish soati bo'yicha o'sish tartibida — eng kam ishlagan tepada.
+        # Soati hisoblanmaganlar (chiqish yo'q — ehtimol hali fermada) oxirida.
+        items = sorted(by_role.get(role, []),
+                       key=lambda s: (s.inside_sec is None, s.inside_sec or 0, name_of(s.employee_no)))
         if not items:
             continue
         rows = []
@@ -65,5 +70,5 @@ def daily_html(day: date, shifts: list[Shift], name_of, role_names: dict[str, st
     if not shifts:
         parts.append("<p>Bu kun uchun belgi yo'q.</p>")
     parts.append("<p><i>⚠️ to'liq emas · ⏳ jarayonda · ❓ tasdiqlanmagan · ✏️ qo'lda tuzatilgan. "
-                 "Kun almashishi: standart — 00:00, sog'uvchi — 03:00, qorovul — 12:00.</i></p>")
+                 "Tartib: eng kam ishlagan tepada, chiqishi yo'qlar oxirida. Kun almashishi: sog'uvchi — 03:00, qorovul — 12:00, qolganlar — 00:00.</i></p>")
     return "".join(parts)
