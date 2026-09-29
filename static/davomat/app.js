@@ -284,8 +284,31 @@ async function route(silent) {
     else go(homeTab());
   } catch (e) {
     // Orqa fondagi yangilash xatosi sahifani buzmasin — eski ma'lumot ko'rinib turaveradi.
-    if (!silent && e.message !== "Avtorizatsiya kerak" && e.message !== STALE) $app.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    if (!silent && e.message !== "Avtorizatsiya kerak" && e.message !== STALE) {
+      // Xato bo'lsa ham foydalanuvchi qamalib qolmasin — sahifani standart sanalar bilan ochish tugmasi.
+      $app.innerHTML = `<div class="err">${esc(e.message)}</div>
+        <button class="btn ghost" id="reset-page">↺ Standart sanalar bilan ochish</button>`;
+      document.getElementById("reset-page").onclick = () => { location.hash = location.hash.split("?")[0]; };
+    }
   }
+}
+
+// Sana oralig'ini serverga yuborishdan oldin tekshirish: xato bo'lsa sahifa almashmaydi,
+// sana maydonlari joyida qoladi va xabar ularning tagida chiqadi.
+const MAX_RANGE_DAYS = 366;
+function rangeGo(path, extra) {
+  const from = document.getElementById("from").value, to = document.getElementById("to").value;
+  let msg = "";
+  if (!from || !to) msg = "Ikkala sanani tanlang.";
+  else if (from > to) msg = "Boshlanish sanasi tugash sanasidan keyin bo'lishi mumkin emas.";
+  else if ((new Date(to) - new Date(from)) / 86400000 >= MAX_RANGE_DAYS) msg = `Oraliq ${MAX_RANGE_DAYS} kundan (1 yil) oshmasin.`;
+  let box = document.getElementById("range-err");
+  if (!box) {
+    box = document.createElement("div"); box.id = "range-err";
+    document.getElementById("from").closest(".filters").after(box);
+  }
+  box.innerHTML = msg ? `<div class="err">${msg}</div>` : "";
+  if (!msg) go(path, Object.assign({from, to}, extra || {}));
 }
 
 // ------------------------------ Hozir ------------------------------
@@ -472,7 +495,7 @@ async function pageEmployee(no, p) {
     </div>`;
   });
   $app.innerHTML = html;
-  const upd = () => go(mine ? "my" : "emp/" + encodeURIComponent(no), {from: document.getElementById("from").value, to: document.getElementById("to").value});
+  const upd = () => rangeGo(mine ? "my" : "emp/" + encodeURIComponent(no));
   document.getElementById("from").onchange = upd;
   document.getElementById("to").onchange = upd;
   document.querySelectorAll("[data-resolve]").forEach(b => b.onclick = async () => {
@@ -509,7 +532,7 @@ async function pageGuards(p) {
     </div>`).join("") + `</div>`;
   if (!d.rows.length) html += `<div class="empty">Qorovul smenalari yo'q</div>`;
   $app.innerHTML = html;
-  const upd = () => go("guards", {from: document.getElementById("from").value, to: document.getElementById("to").value});
+  const upd = () => rangeGo("guards");
   document.getElementById("from").onchange = upd;
   document.getElementById("to").onchange = upd;
   document.querySelectorAll(".row[data-emp]").forEach(el => el.onclick = () => go("emp/" + encodeURIComponent(el.dataset.emp), {from, to}));
@@ -530,7 +553,7 @@ async function pagePeriod(p) {
       <td class="num"><b>${dur(r.inside_sec)}</b></td></tr>`).join("")
     + `</tbody></table></div>`;
   $app.innerHTML = html;
-  const upd = () => go("period", {from: document.getElementById("from").value, to: document.getElementById("to").value});
+  const upd = () => rangeGo("period", {role: p.role});
   document.getElementById("from").onchange = upd;
   document.getElementById("to").onchange = upd;
   document.getElementById("xlsx").onclick = () => download("/period.xlsx" + qs({from, to, role: p.role}), `davomat_${from}_${to}.xlsx`);
@@ -561,7 +584,7 @@ async function pageCheckins(p) {
         </div></div></div>`).join("") + `</div>`;
   $app.innerHTML = html;
   document.querySelectorAll("img[data-photo]").forEach(loadPhoto);
-  const upd = () => go("checkins", {from: document.getElementById("from").value, to: document.getElementById("to").value});
+  const upd = () => rangeGo("checkins");
   document.getElementById("from").onchange = upd;
   document.getElementById("to").onchange = upd;
   document.getElementById("xlsx").onclick = () => download("/checkins.xlsx" + qs({from, to}), `checkin_${from}_${to}.xlsx`);

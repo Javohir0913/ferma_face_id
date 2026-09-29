@@ -35,7 +35,7 @@ from davomat.engine import RoleParams, SHIFT_GUARD_DAY, SHIFT_GUARD_NIGHT, fmt_d
 
 router = APIRouter(prefix="/api/davomat")
 PHOTO_DIR = Path(CHECKIN_PHOTO_DIR)
-MAX_RANGE_DAYS = 62
+MAX_RANGE_DAYS = 366
 
 
 def _d(s: Optional[str], default: date) -> date:
@@ -54,7 +54,7 @@ def _range(frm: Optional[str], to: Optional[str], default_days: int = 7) -> tupl
     if d_from > d_to:
         raise HTTPException(400, "Boshlanish sanasi tugashdan keyin")
     if (d_to - d_from).days >= MAX_RANGE_DAYS:
-        raise HTTPException(400, f"Oraliq {MAX_RANGE_DAYS} kundan oshmasin")
+        raise HTTPException(400, f"Oraliq {MAX_RANGE_DAYS} kundan (1 yil) oshmasin")
     return d_from, d_to
 
 
