@@ -65,5 +65,5 @@ def daily_html(day: date, shifts: list[Shift], name_of, role_names: dict[str, st
     if not shifts:
         parts.append("<p>Bu kun uchun belgi yo'q.</p>")
     parts.append("<p><i>⚠️ to'liq emas · ⏳ jarayonda · ❓ tasdiqlanmagan · ✏️ qo'lda tuzatilgan. "
-                 "Sog'uvchilarda kun 03:00 da, qorovullarda 12:00 da almashadi.</i></p>")
+                 "Kun almashishi: standart — 00:00, sog'uvchi — 03:00, qorovul — 12:00.</i></p>")
     return "".join(parts)
