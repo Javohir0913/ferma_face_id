@@ -738,7 +738,7 @@ async function adminUsers(el) {
 async function adminRoles(el) {
   const roles = await api("/admin/roles");
   el.innerHTML = `<p class="muted">day_boundary — kun chegarasi; debounce_sec — dublikat oynasi; max_shift_hours — smena maksimal davomiyligi;
-      mode "shift" — qorovul smenasi; day_window/night_window — smena boshlanish soatlari [dan, gacha).</p>`
+      mode "shift" — qorovul smenasi; day_start/night_start — kunduzgi va tungi smena odatiy boshlanishi (qorovul qaysi biriga yaqin kelsa, o'sha smena avtomatik tanlanadi).</p>`
     + roles.map(r => `<div class="card"><div class="field"><label>Nomi (${esc(r.code)})</label><input data-name="${esc(r.code)}" value="${esc(r.name)}"></div>
       <div class="field"><label>Parametrlar (JSON)</label><textarea rows="4" data-params="${esc(r.code)}">${esc(JSON.stringify(r.params, null, 1))}</textarea></div>
       <button class="btn" data-save="${esc(r.code)}">Saqlash</button></div>`).join("");

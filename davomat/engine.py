@@ -50,8 +50,8 @@ class RoleParams:
     day_boundary: time = time(3, 0)     # shu vaqtgacha bo'lgan belgilar oldingi kunga
     debounce_sec: int = 60
     max_shift_hours: float = 16.0       # "jarayonda" holati shu muddatgacha
-    day_window: tuple[int, int] = (6, 11)     # qorovul kunduzgi smena boshlanish soatlari [from, to)
-    night_window: tuple[int, int] = (18, 24)  # qorovul tungi smena boshlanish soatlari [from, to)
+    day_start: time = time(9, 0)        # qorovul kunduzgi smena odatiy boshlanishi
+    night_start: time = time(21, 0)     # qorovul tungi smena odatiy boshlanishi
 
     @staticmethod
     def from_dict(code: str, d: dict) -> "RoleParams":
@@ -66,8 +66,8 @@ class RoleParams:
             day_boundary=_t(d.get("day_boundary"), time(3, 0)),
             debounce_sec=int(d.get("debounce_sec", 60)),
             max_shift_hours=float(d.get("max_shift_hours", 16)),
-            day_window=tuple(d.get("day_window", (6, 11))),
-            night_window=tuple(d.get("night_window", (18, 24))),
+            day_start=_t(d.get("day_start"), time(9, 0)),
+            night_start=_t(d.get("night_start"), time(21, 0)),
         )
 
 
@@ -136,12 +136,19 @@ def debounce(punches: Iterable[Punch], sec: int) -> tuple[list[Punch], list[Punc
 
 
 def _guard_type(start: datetime, rp: RoleParams) -> str:
-    h = start.hour
-    if rp.day_window[0] <= h < rp.day_window[1]:
-        return SHIFT_GUARD_DAY
-    if rp.night_window[0] <= h < rp.night_window[1]:
-        return SHIFT_GUARD_NIGHT
-    return SHIFT_UNKNOWN
+    """Smena turi hech qachon so'ralmaydi: kelish vaqti qaysi smena boshlanishiga
+    (09:00 yoki 21:00) yaqin bo'lsa — o'sha. Qorovul erta yoki kech kelishi mumkin."""
+    def dist(t: time) -> float:
+        d = abs((start.hour * 60 + start.minute) - (t.hour * 60 + t.minute))
+        return min(d, 24 * 60 - d)
+    return SHIFT_GUARD_DAY if dist(rp.day_start) <= dist(rp.night_start) else SHIFT_GUARD_NIGHT
+
+
+def _guard_group(cur: list[Punch], rp: RoleParams) -> tuple[date, str, list[Punch]]:
+    # Smena sanasi va turi birinchi KIRISH bo'yicha: guruh boshida oldingi smenadan
+    # qolgan chiqish bo'lishi mumkin — u smena turini buzmasin.
+    a = next((p.ts for p in cur if p.direction == IN), cur[0].ts)
+    return work_date_of(a, rp.day_boundary), _guard_type(a, rp), cur
 
 
 def group(kept: list[Punch], rp: RoleParams) -> list[tuple[date, str, list[Punch]]]:
@@ -162,13 +169,18 @@ def group(kept: list[Punch], rp: RoleParams) -> list[tuple[date, str, list[Punch
     out: list[tuple[date, str, list[Punch]]] = []
     cur: list[Punch] = []
     for p in kept:
-        elapsed = (p.ts - cur[0].ts).total_seconds() if cur else 0
-        if cur and (elapsed > rp.max_shift_hours * 3600 or (p.direction == IN and elapsed >= 10 * 3600)):
-            out.append((work_date_of(cur[0].ts, rp.day_boundary), _guard_type(cur[0].ts, rp), cur))
-            cur = []
+        if cur:
+            first_in = next((x for x in cur if x.direction == IN), None)
+            # Davomiylik birinchi kirishdan; kirish hali yo'q bo'lsa — birinchi belgidan.
+            elapsed = (p.ts - (first_in or cur[0]).ts).total_seconds()
+            # Oldingi smenadan qolgan yolg'iz chiqish(lar) yangi smenaga qo'shilmasin.
+            leftover_exit = first_in is None and p.direction == IN and (p.ts - cur[-1].ts).total_seconds() >= 3600
+            if leftover_exit or elapsed > rp.max_shift_hours * 3600 or (p.direction == IN and elapsed >= 10 * 3600):
+                out.append(_guard_group(cur, rp))
+                cur = []
         cur.append(p)
     if cur:
-        out.append((work_date_of(cur[0].ts, rp.day_boundary), _guard_type(cur[0].ts, rp), cur))
+        out.append(_guard_group(cur, rp))
     return out
 
 

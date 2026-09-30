@@ -9,7 +9,7 @@ import pytest
 
 import telegram
 from config import DATABASE_URL
-from database import create_all, database, events
+from database import create_all, database, events, notifications
 from davomat import bot, service
 from main import app
 
@@ -230,30 +230,25 @@ def test_full_flow(env):
     run(loop, scenario())
 
 
-def test_bot_guard_question_and_callback(env):
+def test_guard_shift_never_asked(env):
     loop = env
     SENT.clear()
-    # 00000020 boshlang'ich ma'lumotda qorovul; avtomatik aniqlash o'chiq.
+    # 00000020 boshlang'ich ma'lumotda qorovul; avtomatik qorovul aniqlash o'chiq.
     service.now_local = lambda: datetime(2026, 9, 11, 9, 0)
     service.reset_guard_cache()
     ctx = run(loop, service.load_context())
     assert not ctx.auto_guards
     assert ctx.role_code_at("00000020", datetime(2026, 9, 10).date()) == "qorovul"
-    assert ctx.role_code_at("00000005", datetime(2026, 9, 10).date()) == "standart"
-    # 14:00 da kelgan -> smena turi noma'lum -> savol.
+    # 14:00 da kelgan — endi so'ralmaydi, smena turi o'zi tanlanadi (09:00 ga yaqinroq -> kunduzgi).
+    run(loop, database.execute(notifications.insert().values(key="guard_type:eski", kind="guard_type", status="open",
+                                                             created_at=datetime.utcnow())))
     run(loop, bot.job_guard_unknown(datetime(2026, 9, 11, 9, 0), run(loop, service.get_settings())))
-    q = [m for m in SENT if m[2] and "inline_keyboard" in m[2]]
-    assert q and "aniqlanmadi" in q[0][1]
-    cb_data = q[0][2]["inline_keyboard"][0][1]["callback_data"]  # Tungi
-
-    # Ruxsatsiz odam bosa — qabul qilinmaydi.
-    run(loop, bot.handle_update({"update_id": 2, "callback_query": {"id": "1", "from": {"id": 12345}, "data": cb_data}}))
-    ctx = run(loop, service.load_context())
-    assert not ctx.resolutions.get("00000020")
-    # Admin bosadi — smena sanasiga bog'lanadi.
-    run(loop, bot.handle_update({"update_id": 3, "callback_query": {"id": "2", "from": {"id": 900}, "data": cb_data}}))
-    ctx = run(loop, service.load_context())
-    assert ctx.resolutions["00000020"][datetime(2026, 9, 10, 14, 0)] == ("tungi", True)
+    assert not [m for m in SENT if m[2] and "inline_keyboard" in m[2]]
+    old = run(loop, database.fetch_one(notifications.select().where(notifications.c.key == "guard_type:eski")))
+    assert old["status"] == "auto"  # eski ochiq savol jim yopildi
+    _, shifts = run(loop, service.compute_range(date(2026, 9, 10), date(2026, 9, 10), only="00000020"))
+    s14 = next(s for s in shifts if s.start == datetime(2026, 9, 10, 14, 0))
+    assert s14.shift_type == "kunduzgi"
 
 
 def test_bot_daily_summary_once(env):

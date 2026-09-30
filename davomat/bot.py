@@ -257,41 +257,11 @@ async def job_guard_absent(now: datetime, s: dict) -> None:
 
 
 async def job_guard_unknown(now: datetime, s: dict) -> None:
-    ctx, shifts = await service.compute_range(now.date() - timedelta(days=2), now.date())
-    remind = timedelta(hours=float(s["remind_after_h"]))
-    auto = timedelta(hours=float(s["auto_resolve_after_h"]))
-    for sh in shifts:
-        if sh.role != "qorovul" or sh.shift_type != SHIFT_UNKNOWN or not sh.punches:
-            continue
-        start = sh.punches[0].ts
-        key = f"guard_type:{sh.employee_no}:{start.isoformat()}"
-        payload = {"employee_no": sh.employee_no, "shift_start": start.isoformat()}
-        name = html.escape(service.name_of(ctx, sh.employee_no))
-        text = (f"❓ Qorovul smenasi aniqlanmadi\n\n<b>{name}</b> {start:%d.%m %H:%M} da keldi — "
-                f"bu kunduzgi yoki tungi smenami?")
-        nid = await notif_create(key, "guard_type", payload)
-        if nid:
-            await _send_guard_question(nid, text)
-    utcnow = datetime.utcnow()
-    for n in await database.fetch_all(select(notifications).where(and_(
-            notifications.c.kind == "guard_type", notifications.c.status == "open"))):
-        p = json.loads(n["payload"])
-        if utcnow - n["created_at"] >= auto:
-            st = datetime.fromisoformat(p["shift_start"])
-            h = st.hour
-            dist = lambda a: min(abs(h - a), 24 - abs(h - a))
-            guess = SHIFT_GUARD_DAY if dist(_hm(s["guard_day_start"]).hour) <= dist(_hm(s["guard_night_start"]).hour) else SHIFT_GUARD_NIGHT
-            await service.save_resolution(p["employee_no"], st, guess, None, confirmed=False)
-            await database.execute(notifications.update().where(notifications.c.id == n["id"]).values(
-                status="auto", resolved_at=utcnow))
-            for t in await responsible_ids():
-                await telegram.send_to(t, f"⏱ Javob bo'lmagani uchun {st:%d.%m %H:%M} dagi smena "
-                                          f"<b>{TYPE_LABEL[guess]}</b> deb belgilandi (tasdiqlanmagan). Hisobotda o'zgartirish mumkin.")
-        elif n["remind_count"] == 0 and utcnow - (n["last_sent_at"] or n["created_at"]) >= remind:
-            st = datetime.fromisoformat(p["shift_start"])
-            await _send_guard_question(n["id"], f"🔔 Eslatma: {st:%d.%m %H:%M} dagi qorovul smenasi turi hali tanlanmadi.")
-            await database.execute(notifications.update().where(notifications.c.id == n["id"]).values(
-                remind_count=1, last_sent_at=utcnow))
+    """Qorovul smenasi turi endi har doim avtomatik aniqlanadi (engine._guard_type) —
+    hech kimdan so'ralmaydi. Avvalgi versiyadan ochiq qolgan savollar jim yopiladi."""
+    await database.execute(notifications.update().where(and_(
+        notifications.c.kind == "guard_type", notifications.c.status == "open")).values(
+        status="auto", resolved_at=datetime.utcnow()))
 
 
 async def _send_guard_question(nid: int, text: str) -> None:

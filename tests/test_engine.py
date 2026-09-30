@@ -120,17 +120,15 @@ def test_guard_day_then_night_next_day_are_separate():
     assert [s.shift_type for s in shifts] == [SHIFT_GUARD_DAY, SHIFT_GUARD_NIGHT]
 
 
-def test_guard_unknown_shift_and_resolution():
-    ps = [P("2026-09-23 14:00:00", IN), P("2026-09-23 23:00:00", OUT)]
-    [sh] = compute("1", ps, GUARD, NOW)
-    assert sh.shift_type == SHIFT_UNKNOWN
-    assert "smena turi aniqlanmadi" in sh.flags
-    res = {datetime(2026, 9, 23, 14, 0): (SHIFT_GUARD_DAY, False)}
-    [sh] = compute("1", ps, GUARD, NOW, resolutions=res)
-    assert sh.shift_type == SHIFT_GUARD_DAY and sh.status == ST_UNCONFIRMED
-    res = {datetime(2026, 9, 23, 14, 0): (SHIFT_GUARD_DAY, True)}
-    [sh] = compute("1", ps, GUARD, NOW, resolutions=res)
-    assert sh.status == ST_CLOSED
+def test_guard_shift_type_is_always_decided_automatically():
+    # Qorovul erta yoki kech kelishi mumkin: 09:00 ga yaqin — kunduzgi, 21:00 ga yaqin — tungi.
+    cases = {"06:10": SHIFT_GUARD_DAY, "10:40": SHIFT_GUARD_DAY, "14:59": SHIFT_GUARD_DAY,
+             "15:01": SHIFT_GUARD_NIGHT, "16:58": SHIFT_GUARD_NIGHT, "23:30": SHIFT_GUARD_NIGHT, "02:30": SHIFT_GUARD_NIGHT}
+    for hhmm, expected in cases.items():
+        ps = [P(f"2026-09-23 {hhmm}:00", IN), P("2026-09-24 03:30:00", OUT)]
+        sh = compute("1", ps, GUARD, NOW)[0]
+        assert sh.shift_type == expected, hhmm
+        assert sh.shift_type != SHIFT_UNKNOWN and "smena turi aniqlanmadi" not in sh.flags
 
 
 def test_manual_correction():
@@ -203,7 +201,7 @@ def test_milker_not_guard():
 
 
 def test_guard_09_21_shifts_with_new_windows():
-    rp = RoleParams(code="qorovul", mode="shift", max_shift_hours=14, day_window=(7, 12), night_window=(19, 24))
+    rp = RoleParams(code="qorovul", mode="shift", max_shift_hours=14)
     shifts = compute("1", _guard_week(1), rp, NOW)
     assert [s.shift_type for s in shifts] == ["kunduzgi", "tungi"] * 3 + ["kunduzgi"]
     assert all(s.status == ST_CLOSED for s in shifts)
@@ -211,7 +209,7 @@ def test_guard_09_21_shifts_with_new_windows():
 
 
 def test_guard_back_to_back_night_then_day():
-    rp = RoleParams(code="qorovul", mode="shift", max_shift_hours=14, day_window=(7, 12), night_window=(19, 24))
+    rp = RoleParams(code="qorovul", mode="shift", max_shift_hours=14)
     ps = [P("2026-09-01 20:55:00", IN), P("2026-09-02 09:00:00", OUT),
           P("2026-09-02 09:05:00", IN), P("2026-09-02 21:03:00", OUT)]
     shifts = compute("1", ps, rp, NOW)
@@ -221,7 +219,7 @@ def test_guard_back_to_back_night_then_day():
 
 def test_guard_day_changes_at_noon():
     rp = RoleParams(code="qorovul", mode="shift", day_boundary=time(12, 0), max_shift_hours=14,
-                    day_window=(6, 13), night_window=(17, 24))
+)
     ps = [P("2026-09-23 21:00:00", IN), P("2026-09-24 09:00:00", OUT),   # tungi -> 23-sana
           P("2026-09-24 13:00:00", IN), P("2026-09-24 23:30:00", OUT),   # 12:00 dan keyin -> 24-sana
           P("2026-09-25 11:30:00", IN), P("2026-09-25 20:00:00", OUT)]   # 12:00 gacha -> 24-sana
@@ -246,3 +244,9 @@ def test_report_sorted_least_worked_first():
     html = daily_html(d, [mk("A", 3600), mk("B", None), mk("C", 9 * 3600), mk("D", 5 * 3600)], lambda e: e, {})
     order = [html.index(f"<td>{e}") for e in ("A", "D", "C", "B")]
     assert order == sorted(order)
+
+
+def test_guard_type_uses_first_entry_not_leftover_exit():
+    ps = [P("2026-09-27 03:10:00", OUT), P("2026-09-27 05:48:00", IN), P("2026-09-27 17:30:00", OUT)]
+    shifts = compute("1", ps, GUARD, NOW)
+    assert shifts[-1].shift_type == SHIFT_GUARD_DAY

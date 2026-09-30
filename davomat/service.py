@@ -25,7 +25,7 @@ ROLE_DEFAULTS = {
     "soguvchi": ("Sog'uvchi", {"mode": "day", "day_boundary": "03:00", "debounce_sec": 60, "max_shift_hours": 23}),
     # Smenalar 09:00–21:00 va 21:00–09:00; boshlanish oynasi ±2 soat.
     "qorovul": ("Qorovul", {"mode": "shift", "day_boundary": "12:00", "debounce_sec": 60, "max_shift_hours": 14,
-                            "day_window": [6, 13], "night_window": [17, 24]}),
+                            "day_start": "09:00", "night_start": "21:00"}),
     "tashqi": ("Tashqi ish", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
     "administrator": ("Administrator", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
     "direktor": ("Direktor", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
