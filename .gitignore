@@ -10,3 +10,4 @@ static/snapshots/*
 data/checkins/
 data/*.db-wal
 data/*.db-shm
+backups/

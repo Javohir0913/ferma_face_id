@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Ferma — SQLite jadval ta'rifi (databases + SQLAlchemy core)."""
+"""Ferma — jadval ta'rifi (databases + SQLAlchemy core). SQLite (lokal test) va PostgreSQL (Docker) bilan ishlaydi."""
 import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     Float,
@@ -18,7 +19,15 @@ from databases import Database
 
 from config import DATABASE_URL
 
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
 database = Database(DATABASE_URL)
+
+
+def sync_url() -> str:
+    """create_all/seed uchun sinxron drayver manzili."""
+    if IS_SQLITE:
+        return DATABASE_URL.replace("+aiosqlite", "")
+    return "postgresql+psycopg://" + DATABASE_URL.split("://", 1)[1]
 metadata = MetaData()
 
 events = Table(
@@ -41,7 +50,7 @@ events = Table(
 # Bir xil kameradan (gate) bir xil serialNo ikki marta kelsa — bu takroriy
 # push (tarmoq/ACK muammosi), UNIQUE index buni bloklaydi. Ikki xil gate
 # (kirish/chiqish) o'z-o'zicha mustaqil sanaladi, shuning uchun (gate,
-# serial_no) juftligi bo'yicha. SQLite'da UNIQUE composite indexda NULL
+# serial_no) juftligi bo'yicha. SQLite va PostgreSQL'da UNIQUE indexda NULL
 # qiymatlar bir-biriga to'qnashmaydi, shuning uchun serial_no bo'sh bo'lgan
 # yozuvlarga (masalan parse-fail debug qatorlariga) bu cheklov xalaqit bermaydi.
 Index("idx_events_gate_serial", events.c.gate, events.c.serial_no, unique=True)
@@ -58,7 +67,7 @@ employees = Table(
     metadata,
     Column("employee_no", String, primary_key=True),
     Column("full_name", String, nullable=False),
-    Column("telegram_user_id", Integer, nullable=True, unique=True),
+    Column("telegram_user_id", BigInteger, nullable=True, unique=True),
     # Kamerada bitta odam ikki ID bilan ro'yxatda bo'lsa — asosiy ID'ga ulanadi.
     Column("merged_into", String, nullable=True),
     Column("active", Integer, default=1),
@@ -81,7 +90,7 @@ employee_roles = Table(
     Column("role", String, nullable=False),
     Column("valid_from", String, nullable=False),  # YYYY-MM-DD
     Column("valid_to", String, nullable=True),     # YYYY-MM-DD, NULL = hozirgacha
-    Column("created_by", Integer, nullable=True),
+    Column("created_by", BigInteger, nullable=True),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
@@ -90,7 +99,7 @@ checkins = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("employee_no", String, nullable=False, index=True),
-    Column("telegram_user_id", Integer, nullable=False),
+    Column("telegram_user_id", BigInteger, nullable=False),
     Column("direction", String, nullable=False),  # "in" | "out"
     Column("ts", DateTime, nullable=False),        # server vaqti, Toshkent
     Column("lat", Float, nullable=False),
@@ -112,7 +121,7 @@ corrections = Table(
     Column("value", DateTime, nullable=True),
     Column("note", Text, nullable=True),
     Column("active", Integer, default=1),
-    Column("created_by", Integer, nullable=False),
+    Column("created_by", BigInteger, nullable=False),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
@@ -125,7 +134,7 @@ resolutions = Table(
     Column("shift_start", DateTime, nullable=False),
     Column("shift_type", String, nullable=False),  # "kunduzgi" | "tungi"
     Column("confirmed", Integer, default=1),       # 0 = tizim o'zi tanladi (tasdiqlanmagan)
-    Column("created_by", Integer, nullable=True),
+    Column("created_by", BigInteger, nullable=True),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 Index("idx_resolutions_emp_start", resolutions.c.employee_no, resolutions.c.shift_start, unique=True)
@@ -133,7 +142,7 @@ Index("idx_resolutions_emp_start", resolutions.c.employee_no, resolutions.c.shif
 app_users = Table(
     "app_users",
     metadata,
-    Column("telegram_user_id", Integer, primary_key=True),
+    Column("telegram_user_id", BigInteger, primary_key=True, autoincrement=False),
     Column("name", String, nullable=True),
     Column("level", String, nullable=False),         # "viewer" | "admin"
     Column("is_responsible", Integer, default=0),   # istisno xabarlarini oladi
@@ -144,7 +153,7 @@ audit_log = Table(
     "audit_log",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("actor_id", Integer, nullable=True),
+    Column("actor_id", BigInteger, nullable=True),
     Column("action", String, nullable=False),
     Column("entity", String, nullable=False),
     Column("entity_id", String, nullable=True),
@@ -163,7 +172,7 @@ settings = Table(
 tg_link_requests = Table(
     "tg_link_requests",
     metadata,
-    Column("telegram_user_id", Integer, primary_key=True),
+    Column("telegram_user_id", BigInteger, primary_key=True, autoincrement=False),
     Column("username", String, nullable=True),
     Column("full_name", String, nullable=True),
     Column("status", String, default="pending"),  # pending | linked | rejected
@@ -175,7 +184,7 @@ tg_link_requests = Table(
 tg_locations = Table(
     "tg_locations",
     metadata,
-    Column("telegram_user_id", Integer, primary_key=True),
+    Column("telegram_user_id", BigInteger, primary_key=True, autoincrement=False),
     Column("lat", Float, nullable=False),
     Column("lon", Float, nullable=False),
     Column("accuracy", Float, nullable=True),
@@ -187,7 +196,7 @@ tg_locations = Table(
 web_credentials = Table(
     "web_credentials",
     metadata,
-    Column("telegram_user_id", Integer, primary_key=True),
+    Column("telegram_user_id", BigInteger, primary_key=True, autoincrement=False),
     Column("login", String, nullable=False, unique=True),
     Column("password_hash", String, nullable=False),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
@@ -205,19 +214,23 @@ notifications = Table(
     Column("status", String, default="open"),  # open | resolved | auto
     Column("remind_count", Integer, default=0),
     Column("last_sent_at", DateTime, nullable=True),
-    Column("resolved_by", Integer, nullable=True),
+    Column("resolved_by", BigInteger, nullable=True),
     Column("resolved_at", DateTime, nullable=True),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
 
 def create_all():
-    """Jadval(lar)ni (agar mavjud bo'lmasa) yaratadi. main.py startup'da chaqiradi."""
-    sync_url = DATABASE_URL.replace("+aiosqlite", "")
-    engine = create_engine(sync_url, future=True)
-    metadata.create_all(engine)
-    idx_events_emp_time.create(engine, checkfirst=True)
-    with engine.begin() as conn:
-        # Super admin faqat bitta bo'lishi mumkin — baza darajasida kafolat.
-        conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_one_superadmin ON app_users(level) WHERE level = 'superadmin'")
-    engine.dispose()
+    """Jadval(lar)ni (agar mavjud bo'lmasa) yaratadi. main.py va bot ishga tushishda chaqiradi."""
+    engine = create_engine(sync_url(), future=True)
+    try:
+        with engine.begin() as conn:
+            if not IS_SQLITE:
+                # Bo'sh bazada 2 ta gunicorn worker bir vaqtda jadval yaratmasin — biri kutadi.
+                conn.exec_driver_sql("SELECT pg_advisory_xact_lock(4242002)")
+            metadata.create_all(conn)
+            idx_events_emp_time.create(conn, checkfirst=True)
+            # Super admin faqat bitta bo'lishi mumkin — baza darajasida kafolat.
+            conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_one_superadmin ON app_users(level) WHERE level = 'superadmin'")
+    finally:
+        engine.dispose()

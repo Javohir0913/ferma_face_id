@@ -1,8 +1,9 @@
 fastapi
 uvicorn[standard]
 gunicorn
-databases[aiosqlite]
-sqlalchemy
+databases[aiosqlite,asyncpg]
+sqlalchemy>=2.0,<2.1
+psycopg[binary]
 httpx
 python-dotenv
 openpyxl

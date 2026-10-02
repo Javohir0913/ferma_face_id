@@ -11,8 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import ADMIN_TELEGRAM_IDS, DATABASE_URL, SUPERADMIN_TELEGRAM_ID
-from database import create_all, database
+from config import ADMIN_TELEGRAM_IDS, SUPERADMIN_TELEGRAM_ID
+from database import IS_SQLITE, create_all, database
 from davomat import service
 from davomat.api import router as davomat_router
 from events import handle_event
@@ -26,10 +26,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_all()
-    new_admins = service.seed_sync(DATABASE_URL.split("///", 1)[1], ADMIN_TELEGRAM_IDS, SUPERADMIN_TELEGRAM_ID)
+    new_admins = service.seed_sync(ADMIN_TELEGRAM_IDS, SUPERADMIN_TELEGRAM_ID)
     await database.connect()
-    await database.execute("PRAGMA journal_mode=WAL")
-    await database.execute("PRAGMA busy_timeout=5000")
+    if IS_SQLITE:
+        await database.execute("PRAGMA journal_mode=WAL")
+        await database.execute("PRAGMA busy_timeout=5000")
     for uid in new_admins:
         await service.notify_linked(uid)
     logger.info("✅ Ma'lumotlar bazasiga ulanish hosil qilindi.")

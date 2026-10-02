@@ -23,7 +23,7 @@ from sqlalchemy import and_, select
 
 import telegram
 from config import MINIAPP_LINK, PUBLIC_BASE_URL, TG_CHATS, TG_TOKEN
-from database import app_users, create_all, database, notifications, tg_link_requests
+from database import IS_SQLITE, app_users, create_all, database, notifications, tg_link_requests
 from davomat import service
 from davomat.engine import SHIFT_GUARD_DAY, SHIFT_GUARD_NIGHT, SHIFT_UNKNOWN, ST_CLOSED, ST_INCOMPLETE, ST_OPEN
 
@@ -318,7 +318,8 @@ async def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     create_all()
     await database.connect()
-    await database.execute("PRAGMA busy_timeout=5000")
+    if IS_SQLITE:
+        await database.execute("PRAGMA busy_timeout=5000")
     if not TG_TOKEN:
         logger.error("TG_TOKEN yo'q — bot ishga tushmaydi")
         return

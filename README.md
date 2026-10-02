@@ -24,7 +24,44 @@ cp .env.example .env
 uvicorn main:app --host 0.0.0.0 --port 84 --reload
 ```
 
-## Production (systemd + gunicorn)
+## Docker + PostgreSQL (tavsiya etilgan)
+
+Uchta konteyner: `db` (PostgreSQL 17), `app` (Face ID qabul qilish + web/Mini App, gunicorn 2 worker), `bot` (Telegram bot).
+Hammasi `restart: unless-stopped` — server qayta yoqilsa o'zi ko'tariladi.
+
+```bash
+cp .env.example .env        # to'ldiring: TG_TOKEN, TG_CHATS, SESSION_SECRET, SUPERADMIN_TELEGRAM_ID, POSTGRES_PASSWORD ...
+docker compose up -d --build
+docker compose ps           # app — healthy bo'lishi kerak
+docker compose logs -f app bot
+```
+
+Kod yangilash: `git pull && docker compose up -d --build`. Ma'lumotlar `pgdata` volume'da saqlanadi.
+
+### Eski SQLite bazani ko'chirish
+
+```bash
+docker compose up -d db
+python tools/sqlite_to_postgres.py app.db "postgresql+asyncpg://ferma:<parol>@127.0.0.1:5433/ferma"
+docker compose up -d --build
+```
+
+Skript manbani faqat o'qiydi, maqsad bazada ma'lumot bo'lsa to'xtaydi, oxirida har jadval soni va
+`events` nazorat summasini solishtiradi. Ko'chirishdan oldin eski serverdagi `ferma-bot` to'xtatilishi shart —
+bitta bot tokenini ikki joyda ishlatib bo'lmaydi (Telegram 409 xato beradi) va hisobot ikki marta ketadi.
+
+### Zaxira
+
+`deploy/backup.sh` — `backups/ferma_*.dump` (30 kun saqlanadi). Cron: `30 2 * * * cd /opt/ferma && ./deploy/backup.sh >> backups/backup.log 2>&1`.
+
+### Testlar PostgreSQL'da
+
+```bash
+docker compose exec db psql -U ferma -c "CREATE DATABASE ferma_test"
+TEST_DATABASE_URL="postgresql+asyncpg://ferma:<parol>@127.0.0.1:5433/ferma_test" pytest -q
+```
+
+## Production (systemd + gunicorn, eski usul)
 
 Server: `10.166.113.21`, ichki port `84` (nginx `api.ravnaqfarm.uz`ni shu
 portga yo'naltiradi — `bitrix24_and_sap` bilan bir xil serverda, faqat

@@ -8,7 +8,6 @@ import httpx
 import pytest
 
 import telegram
-from config import DATABASE_URL
 from database import create_all, database, events, notifications
 from davomat import bot, service
 from main import app
@@ -69,7 +68,7 @@ def env():
     loop = asyncio.new_event_loop()
     loop.run_until_complete(database.connect())
     loop.run_until_complete(_seed_events())
-    service.seed_sync(DATABASE_URL.split("///", 1)[1], [], 900)
+    service.seed_sync([], 900)
     yield loop
     loop.run_until_complete(database.disconnect())
     loop.close()
@@ -298,11 +297,12 @@ def test_access_levels(env):
 
     run(loop, scenario())
     # Baza darajasida ham ikkita super admin bo'lishi mumkin emas.
-    import sqlite3
-    con = sqlite3.connect(DATABASE_URL.split("///", 1)[1])
-    with pytest.raises(sqlite3.IntegrityError):
-        con.execute("UPDATE app_users SET level='superadmin' WHERE telegram_user_id=802")
-    con.close()
+    from sqlalchemy import create_engine, exc
+    from database import sync_url
+    engine = create_engine(sync_url())
+    with pytest.raises(exc.IntegrityError), engine.begin() as con:
+        con.exec_driver_sql("UPDATE app_users SET level='superadmin' WHERE telegram_user_id=802")
+    engine.dispose()
 
 
 def test_credentials_resent_on_start_and_parol(env):

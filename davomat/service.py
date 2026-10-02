@@ -80,12 +80,13 @@ async def audit(actor_id: Optional[int], action: str, entity: str, entity_id, be
 
 
 _NEW_EMPLOYEES_SQL = (
-    "INSERT OR IGNORE INTO employees (employee_no, full_name, active, created_at) "
+    "INSERT INTO employees (employee_no, full_name, active, created_at) "
     "SELECT e.employee_no, COALESCE(e.person_name, 'ID ' || e.employee_no), "
     "       CASE WHEN e.employee_no IN ({inactive}) THEN 0 ELSE 1 END, CURRENT_TIMESTAMP "
     "FROM events e WHERE e.matched = 1 AND e.employee_no IS NOT NULL "
     "  AND e.employee_no NOT IN (SELECT employee_no FROM employees) "
-    "  AND e.id = (SELECT MAX(id) FROM events x WHERE x.employee_no = e.employee_no AND x.matched = 1)"
+    "  AND e.id = (SELECT MAX(id) FROM events x WHERE x.employee_no = e.employee_no AND x.matched = 1) "
+    "ON CONFLICT DO NOTHING"
 ).format(inactive=",".join(f"'{x}'" for x in SEED_INACTIVE))
 
 
@@ -94,53 +95,74 @@ async def sync_employees() -> None:
     await database.execute(_NEW_EMPLOYEES_SQL)
 
 
-def seed_sync(db_path: str, admin_ids: list[int], superadmin_id: Optional[int] = None) -> list[int]:
-    """Boshlang'ich ma'lumotlar. BEGIN IMMEDIATE — bir nechta gunicorn worker bir vaqtda
-    ishga tushsa ham faqat bittasi yozadi, qolganlari kutib, tayyor holatni ko'radi.
+def seed_sync(admin_ids: list[int], superadmin_id: Optional[int] = None) -> list[int]:
+    """Boshlang'ich ma'lumotlar. Bir nechta gunicorn worker bir vaqtda ishga tushsa ham faqat bittasi
+    yozadi (SQLite — BEGIN IMMEDIATE, PostgreSQL — advisory lock), qolganlari kutib, tayyor holatni ko'radi.
     Super admin .env dagi SUPERADMIN_TELEGRAM_ID dan olinadi (boshqa super admin bo'lsa admin qilinadi).
     Yangi yaratilgan adminlar ro'yxatini qaytaradi (ularga xabar yuborish uchun)."""
-    import sqlite3
-    con = sqlite3.connect(db_path, timeout=30, isolation_level=None)
+    from sqlalchemy import create_engine, text
+    from database import IS_SQLITE, sync_url
+    if IS_SQLITE:
+        engine = create_engine(sync_url(), isolation_level="AUTOCOMMIT", connect_args={"timeout": 30})
+    else:
+        engine = create_engine(sync_url())
     new_admins: list[int] = []
     try:
-        con.execute("BEGIN IMMEDIATE")
-        for code, (name, params) in ROLE_DEFAULTS.items():
-            con.execute("INSERT OR IGNORE INTO roles (code, name, params) VALUES (?, ?, ?)", (code, name, json.dumps(params)))
-        for k, v in SETTING_DEFAULTS.items():
-            con.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
-        first_run = con.execute("SELECT 1 FROM employees LIMIT 1").fetchone() is None
-        con.execute(_NEW_EMPLOYEES_SQL)
-        if first_run:
-            for code, nos in SEED_ROLES.items():
-                for no in nos:
-                    if con.execute("SELECT 1 FROM employees WHERE employee_no = ?", (no,)).fetchone():
-                        con.execute("INSERT INTO employee_roles (employee_no, role, valid_from, created_at) "
-                                    "VALUES (?, ?, ?, CURRENT_TIMESTAMP)", (no, code, SEED_ROLE_FROM))
-            for src, dst in SEED_MERGES.items():
-                con.execute("UPDATE employees SET merged_into = ? WHERE employee_no = ?", (dst, src))
-            con.execute("INSERT INTO audit_log (action, entity, after, created_at) VALUES ('seed', 'employees', ?, CURRENT_TIMESTAMP)",
-                        (json.dumps({"roles": SEED_ROLES, "merges": SEED_MERGES}),))
-        if superadmin_id:
-            con.execute("UPDATE app_users SET level = 'admin' WHERE level = 'superadmin' AND telegram_user_id != ?", (superadmin_id,))
-            cur = con.execute("INSERT OR IGNORE INTO app_users (telegram_user_id, name, level, is_responsible, created_at) "
-                              "VALUES (?, 'Super admin', 'superadmin', 1, CURRENT_TIMESTAMP)", (superadmin_id,))
-            if cur.rowcount:
-                new_admins.append(superadmin_id)
+        with engine.connect() as con:
+            def q(sql, **kw):
+                return con.execute(text(sql), kw)
+            if IS_SQLITE:
+                con.exec_driver_sql("BEGIN IMMEDIATE")
             else:
-                con.execute("UPDATE app_users SET level = 'superadmin' WHERE telegram_user_id = ?", (superadmin_id,))
-        for uid in admin_ids:
-            if uid == superadmin_id:
-                continue
-            cur = con.execute("INSERT OR IGNORE INTO app_users (telegram_user_id, name, level, is_responsible, created_at) "
-                              "VALUES (?, 'Admin', 'admin', 1, CURRENT_TIMESTAMP)", (uid,))
-            if cur.rowcount:
-                new_admins.append(uid)
-        con.execute("COMMIT")
-    except Exception:
-        con.execute("ROLLBACK")
-        raise
+                q("SELECT pg_advisory_xact_lock(4242001)")
+            try:
+                for code, (name, params) in ROLE_DEFAULTS.items():
+                    q("INSERT INTO roles (code, name, params) VALUES (:c, :n, :p) ON CONFLICT DO NOTHING",
+                      c=code, n=name, p=json.dumps(params))
+                for k, v in SETTING_DEFAULTS.items():
+                    q("INSERT INTO settings (key, value) VALUES (:k, :v) ON CONFLICT DO NOTHING", k=k, v=v)
+                first_run = q("SELECT 1 FROM employees LIMIT 1").first() is None
+                q(_NEW_EMPLOYEES_SQL)
+                if first_run:
+                    for code, nos in SEED_ROLES.items():
+                        for no in nos:
+                            if q("SELECT 1 FROM employees WHERE employee_no = :no", no=no).first():
+                                q("INSERT INTO employee_roles (employee_no, role, valid_from, created_at) "
+                                  "VALUES (:no, :r, :f, CURRENT_TIMESTAMP)", no=no, r=code, f=SEED_ROLE_FROM)
+                    for src, dst in SEED_MERGES.items():
+                        q("UPDATE employees SET merged_into = :d WHERE employee_no = :s", d=dst, s=src)
+                    q("INSERT INTO audit_log (action, entity, after, created_at) "
+                      "VALUES ('seed', 'employees', :a, CURRENT_TIMESTAMP)",
+                      a=json.dumps({"roles": SEED_ROLES, "merges": SEED_MERGES}))
+                if superadmin_id:
+                    q("UPDATE app_users SET level = 'admin' WHERE level = 'superadmin' AND telegram_user_id != :u",
+                      u=superadmin_id)
+                    cur = q("INSERT INTO app_users (telegram_user_id, name, level, is_responsible, created_at) "
+                            "VALUES (:u, 'Super admin', 'superadmin', 1, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING",
+                            u=superadmin_id)
+                    if cur.rowcount:
+                        new_admins.append(superadmin_id)
+                    else:
+                        q("UPDATE app_users SET level = 'superadmin' WHERE telegram_user_id = :u", u=superadmin_id)
+                for uid in admin_ids:
+                    if uid == superadmin_id:
+                        continue
+                    cur = q("INSERT INTO app_users (telegram_user_id, name, level, is_responsible, created_at) "
+                            "VALUES (:u, 'Admin', 'admin', 1, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING", u=uid)
+                    if cur.rowcount:
+                        new_admins.append(uid)
+                if IS_SQLITE:
+                    con.exec_driver_sql("COMMIT")
+                else:
+                    con.commit()
+            except Exception:
+                if IS_SQLITE:
+                    con.exec_driver_sql("ROLLBACK")
+                else:
+                    con.rollback()
+                raise
     finally:
-        con.close()
+        engine.dispose()
     return new_admins
 
 

@@ -10,7 +10,7 @@ from davomat.engine import ST_CLOSED, ST_INCOMPLETE, ST_OPEN, Shift
 
 OYLAR = ("yanvar", "fevral", "mart", "aprel", "may", "iyun",
          "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr")
-ROLE_ORDER = ["direktor", "administrator", "standart", "soguvchi", "qorovul", "taminotchi", "tashqi"]
+ROLE_ORDER = ["standart", "soguvchi", "direktor", "administrator", "qorovul", "taminotchi", "tashqi"]
 ROLE_TITLE = {"direktor": "👔 Direktor", "administrator": "🗂 Administratorlar", "standart": "👷 Standart",
               "soguvchi": "🐄 Sog'uvchilar", "qorovul": "🛡 Qorovullar", "taminotchi": "🚚 Ta'minotchilar",
               "tashqi": "🚜 Tashqi ish"}
