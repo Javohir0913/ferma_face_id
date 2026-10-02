@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Kunlik davomat hisoboti — Telegram sendRichMessage uchun HTML jadval."""
+"""Ежедневный отчёт посещаемости — HTML-таблица для Telegram sendRichMessage."""
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -54,8 +54,8 @@ def daily_html(day: date, shifts: list[Shift], name_of, role_names: dict[str, st
     for s in shifts:
         by_role.setdefault(s.role, []).append(s)
     for role in ROLE_ORDER + sorted(set(by_role) - set(ROLE_ORDER)):
-        # Fermada ish soati bo'yicha o'sish tartibida — eng kam ishlagan tepada.
-        # Soati hisoblanmaganlar (chiqish yo'q — ehtimol hali fermada) oxirida.
+        # По возрастанию времени на ферме — кто меньше всех отработал, тот сверху.
+        # Те, у кого время не посчитано (нет выхода — возможно, ещё на ферме), — в конце.
         items = sorted(by_role.get(role, []),
                        key=lambda s: (s.inside_sec is None, s.inside_sec or 0, name_of(s.employee_no)))
         if not items:

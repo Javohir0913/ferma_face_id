@@ -45,7 +45,7 @@ def test_simple_day_closed_with_break():
 
 
 def test_consecutive_outs_do_not_cut_time_but_are_flagged():
-    # 12:00 da chiqdi, qaytib kirganda kamera ushlamadi, 18:00 da yana chiqdi.
+    # Вышел в 12:00, при возвращении камера не поймала, в 18:00 снова вышел.
     ps = [P("2026-09-01 08:00:00", IN), P("2026-09-01 12:00:00", OUT), P("2026-09-01 18:00:00", OUT)]
     [sh] = compute("1", ps, STD, NOW)
     assert sh.status == ST_CLOSED
@@ -121,7 +121,7 @@ def test_guard_day_then_night_next_day_are_separate():
 
 
 def test_guard_shift_type_is_always_decided_automatically():
-    # Qorovul erta yoki kech kelishi mumkin: 09:00 ga yaqin — kunduzgi, 21:00 ga yaqin — tungi.
+    # Охранник может прийти раньше или позже: ближе к 09:00 — дневная, ближе к 21:00 — ночная.
     cases = {"06:10": SHIFT_GUARD_DAY, "10:40": SHIFT_GUARD_DAY, "14:59": SHIFT_GUARD_DAY,
              "15:01": SHIFT_GUARD_NIGHT, "16:58": SHIFT_GUARD_NIGHT, "23:30": SHIFT_GUARD_NIGHT, "02:30": SHIFT_GUARD_NIGHT}
     for hhmm, expected in cases.items():
@@ -141,9 +141,9 @@ def test_manual_correction():
 
 def test_role_change_does_not_rewrite_old_days():
     ps = [
-        # 1-sentabr: standart (kun chegarasi bo'yicha kunlik hisob)
+        # 1 сентября: стандарт (дневной учёт по границе дня)
         P("2026-09-01 08:00:00", IN), P("2026-09-01 18:00:00", OUT),
-        # 10-sentabrdan qorovul (tungi smena)
+        # с 10 сентября охранник (ночная смена)
         P("2026-09-10 20:00:00", IN), P("2026-09-11 08:00:00", OUT),
     ]
 
@@ -162,7 +162,7 @@ def test_telegram_and_faceid_do_not_debounce_together():
 
 
 def _guard_week(start_day):
-    """Kunduzgi (09->21) va tungi (21->09) smenalar, orasida dam olish kunlari bilan."""
+    """Дневные (09->21) и ночные (21->09) смены, с выходными между ними."""
     from datetime import timedelta
     out = []
     plan = [("d", 0), ("n", 1), ("d", 4), ("n", 5), ("d", 8), ("n", 9), ("d", 12)]
@@ -220,9 +220,9 @@ def test_guard_back_to_back_night_then_day():
 def test_guard_day_changes_at_noon():
     rp = RoleParams(code="qorovul", mode="shift", day_boundary=time(12, 0), max_shift_hours=14,
 )
-    ps = [P("2026-09-23 21:00:00", IN), P("2026-09-24 09:00:00", OUT),   # tungi -> 23-sana
-          P("2026-09-24 13:00:00", IN), P("2026-09-24 23:30:00", OUT),   # 12:00 dan keyin -> 24-sana
-          P("2026-09-25 11:30:00", IN), P("2026-09-25 20:00:00", OUT)]   # 12:00 gacha -> 24-sana
+    ps = [P("2026-09-23 21:00:00", IN), P("2026-09-24 09:00:00", OUT),   # ночная -> 23-е число
+          P("2026-09-24 13:00:00", IN), P("2026-09-24 23:30:00", OUT),   # после 12:00 -> 24-е число
+          P("2026-09-25 11:30:00", IN), P("2026-09-25 20:00:00", OUT)]   # до 12:00 -> 24-е число
     shifts = compute("1", ps, rp, NOW)
     assert [s.work_date for s in shifts] == [date(2026, 9, 23), date(2026, 9, 24), date(2026, 9, 24)]
     assert shifts[0].span_sec == 12 * 3600

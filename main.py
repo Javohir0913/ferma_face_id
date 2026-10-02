@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Ferma — 2 ta Hikvision Face ID terminal (KIRISH + CHIQISH) uchun standalone
-FastAPI xizmat. Har bir kamera o'zining HTTP Listening (Port 80, HTTP,
-URL: /event/kirish yoki /event/chiqish) orqali shu serverga POST qiladi.
+Ферма — standalone-сервис на FastAPI для 2 терминалов Hikvision Face ID
+(ВХОД + ВЫХОД). Каждая камера делает POST на этот сервер через свой HTTP Listening (Port 80, HTTP,
+URL: /event/kirish или /event/chiqish).
 """
 import logging
 from contextlib import asynccontextmanager
@@ -18,7 +18,7 @@ from davomat.api import router as davomat_router
 from events import handle_event
 
 logging.basicConfig(level=logging.INFO)
-# httpx INFO darajasida so'rov URL'ini yozadi — Telegram bot tokeni logga tushmasligi uchun.
+# httpx на уровне INFO пишет URL запроса — чтобы токен Telegram-бота не попал в лог.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,8 @@ async def lifespan(app: FastAPI):
     logger.info("Tizim to'xtatildi.")
 
 
-# Production'da /docs, /redoc, /openapi.json tashqi dunyoga ochiq
-# bo'lmasligi kerak — shuning uchun o'chirilgan.
+# В production /docs, /redoc, /openapi.json не должны быть открыты
+# наружу — поэтому отключены.
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -65,8 +65,8 @@ app.include_router(davomat_router)
 
 @app.middleware("http")
 async def cache_static(request: Request, call_next):
-    # Frontend fayllari ?v= bilan versiyalangan — brauzer ularni qayta so'ramasin
-    # (sekin tarmoqda sahifa ochilishi shu so'rovlar hisobiga tezlashadi).
+    # Файлы фронтенда версионируются через ?v= — браузер не должен запрашивать их повторно
+    # (на медленной сети страница за счёт этого открывается быстрее).
     response = await call_next(request)
     if request.url.path.startswith("/static/davomat/") and request.url.query.startswith("v="):
         response.headers["Cache-Control"] = "public, max-age=2592000, immutable"

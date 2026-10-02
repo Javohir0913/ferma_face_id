@@ -1,6 +1,6 @@
-# Ferma: PostgreSQL + web/API (Face ID qabul qilish, Mini App) + Telegram bot.
-# Ishga tushirish:  docker compose up -d --build
-# Sozlamalar .env faylida (namuna: .env.example).
+# Ферма: PostgreSQL + web/API (приём Face ID, Mini App) + Telegram-бот.
+# Запуск:  docker compose up -d --build
+# Настройки в файле .env (образец: .env.example).
 name: ferma
 
 x-app: &app
@@ -21,7 +21,7 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
-    # Vaqt maydonlari Toshkent vaqtida (ilova) yoki UTC da (created_at) yoziladi — baza o'zi siljitmasin.
+    # Время пишется по Ташкенту (приложение) или в UTC (created_at) — база не должна его сдвигать.
     command: ["postgres", "-c", "timezone=UTC"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ferma}
@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD .env da bo'lishi shart}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Faqat shu kompyuterning o'zidan (zaxira, ko'chirish uchun); tashqariga ochilmaydi.
+    # Только с этого же компьютера (для бэкапа и переноса); наружу не открывается.
     ports:
       - "127.0.0.1:${PG_PORT:-5433}:5432"
     healthcheck:
@@ -54,7 +54,7 @@ services:
   bot:
     <<: *app
     command: ["python", "-m", "davomat.bot"]
-    # Jadvallarni app yaratadi — bot u tayyor bo'lgandan keyin ishga tushadi.
+    # Таблицы создаёт app — бот запускается после того, как он готов.
     depends_on:
       app: { condition: service_healthy }
 

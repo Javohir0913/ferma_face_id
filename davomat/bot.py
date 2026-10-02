@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Ferma davomat boti (alohida jarayon):  python -m davomat.bot
+Бот посещаемости фермы (отдельный процесс):  python -m davomat.bot
 
-  * /start — biriktirilgan bo'lsa huquqiga mos tugmalar, aks holda so'rov yaratadi
-    va belgilangan mas'ul odamga (settings.link_admin_id) xabar beradi.
-  * Istisno xabarlari faqat mas'ullarga (shaxsiy chat): qorovul kelmadi, smena turi
-    aniqlanmadi (tugmalar bilan), kechagi to'liq bo'lmagan yozuvlar.
-  * Kunlik qisqa xulosa guruhga (TG_CHATS) + hisobot tugmasi.
-Holat `notifications` jadvalida — restartdan keyin takror yuborilmaydi.
+  * /start — если привязан, кнопки по его правам, иначе создаёт заявку
+    и сообщает назначенному ответственному (settings.link_admin_id).
+  * Сообщения об исключениях — только ответственным (личный чат): охранник не пришёл, тип смены
+    не определён (с кнопками), неполные записи за вчера.
+  * Ежедневная краткая сводка в группу (TG_CHATS) + кнопка отчёта.
+Состояние в таблице `notifications` — после рестарта повторно не отправляется.
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ async def notif_create(key: str, kind: str, payload: dict) -> Optional[int]:
         remind_count=0, last_sent_at=datetime.utcnow(), created_at=datetime.utcnow()))
 
 
-# ------------------------------ updates ------------------------------
+# ------------------------------ обновления ------------------------------
 
 async def handle_start(msg: dict) -> None:
     user = msg.get("from") or {}
@@ -75,7 +75,7 @@ async def handle_start(msg: dict) -> None:
     rights = await service.rights_of(uid)
     if rights["level"] or rights["employee_no"]:
         text_cmd = (msg.get("text") or "").strip().lower()
-        # Login-parol hali yetib bormagan bo'lsa (botga /start yozilmagan edi) yoki /parol so'ralsa — yangisini yuboramiz.
+        # Если логин/пароль ещё не дошёл (боту не писали /start) или запрошен /parol — отправляем новый.
         if text_cmd.startswith("/parol") or not await service.credentials_delivered(uid):
             await service.notify_linked(uid, reset=True)
             await service.audit(uid, "reset_password", "web_credentials", uid, None, {"sabab": "bot: " + (text_cmd[:20] or "start")})
@@ -127,7 +127,7 @@ async def handle_callback(cb: dict) -> None:
                     answer = "Topilmadi"
                 else:
                     p = json.loads(n["payload"])
-                    # Javob smena sanasiga bog'lanadi (smena boshlanish vaqti), bosilgan vaqtga emas.
+                    # Ответ привязывается к дате смены (время начала смены), а не ко времени нажатия.
                     await service.save_resolution(p["employee_no"], datetime.fromisoformat(p["shift_start"]), stype, uid, confirmed=True)
                     await database.execute(notifications.update().where(notifications.c.id == n["id"]).values(
                         status="resolved", resolved_by=uid, resolved_at=datetime.utcnow()))
@@ -143,8 +143,8 @@ async def handle_callback(cb: dict) -> None:
 
 
 async def handle_location(msg: dict, edited: bool) -> None:
-    """Chatda yuborilgan joylashuv. Xaritadan qo'lda tanlangan nuqta (aniqligi yo'q, jonli emas)
-    qabul qilinmaydi — faqat qurilma GPS'i yoki jonli joylashuv."""
+    """Геопозиция, отправленная в чат. Точка, выбранная вручную на карте (без точности, не трансляция),
+    не принимается — только GPS устройства или трансляция геопозиции."""
     uid = int(msg["from"]["id"])
     loc = msg["location"]
     live = loc.get("live_period")
@@ -185,11 +185,11 @@ async def handle_update(upd: dict) -> None:
         return
     if edited:
         return
-    # Har qanday shaxsiy xabarga /start kabi javob beramiz — ID va holatni bilishi uchun.
+    # На любое личное сообщение отвечаем как на /start — чтобы человек знал свой ID и статус.
     await handle_start(msg)
 
 
-# ------------------------------ jadval ------------------------------
+# ------------------------------ расписание ------------------------------
 
 def _report_markup(date_iso: str) -> Optional[dict]:
     if MINIAPP_LINK:
@@ -200,7 +200,7 @@ def _report_markup(date_iso: str) -> Optional[dict]:
 
 
 async def send_daily_report(day, ctx=None, shifts=None, chats=None) -> None:
-    """Kechagi kun: kim keldi / kim ketdi — HTML jadval (sendRichMessage) guruhga."""
+    """Вчерашний день: кто пришёл / кто ушёл — HTML-таблица (sendRichMessage) в группу."""
     from davomat.report import daily_html
     if shifts is None:
         ctx, shifts = await service.compute_range(day, day)
@@ -257,8 +257,8 @@ async def job_guard_absent(now: datetime, s: dict) -> None:
 
 
 async def job_guard_unknown(now: datetime, s: dict) -> None:
-    """Qorovul smenasi turi endi har doim avtomatik aniqlanadi (engine._guard_type) —
-    hech kimdan so'ralmaydi. Avvalgi versiyadan ochiq qolgan savollar jim yopiladi."""
+    """Тип смены охранника теперь всегда определяется автоматически (engine._guard_type) —
+    никого не спрашиваем. Вопросы, оставшиеся открытыми с прошлой версии, тихо закрываются."""
     await database.execute(notifications.update().where(and_(
         notifications.c.kind == "guard_type", notifications.c.status == "open")).values(
         status="auto", resolved_at=datetime.utcnow()))

@@ -1,6 +1,6 @@
 "use strict";
-// Galereyadan yuklash imkoni atayin yo'q: <input type="file"> ishlatilmaydi,
-// rasm faqat jonli kamera oqimidan (getUserMedia) olinadi.
+// Загрузки из галереи намеренно нет: <input type="file"> не используется,
+// фото берётся только из живого потока камеры (getUserMedia).
 const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData ? window.Telegram.WebApp : null;
 const API = "/api/davomat";
 const $app = document.getElementById("app");
@@ -47,7 +47,7 @@ async function boot() {
   } catch (e) {
     return fail(tg ? e.message : "Bu sahifa faqat Telegram bot ichida ochiladi.");
   }
-  // Navbat: boshlanmagan ishni tugatib bo'lmaydi, boshlangan ishni qayta boshlab bo'lmaydi.
+  // Очерёдность: нельзя закончить не начатую работу, нельзя заново начать начатую.
   DIR = STATE.can_out ? "out" : "in";
   const wanted = new URLSearchParams(location.search).get("dir");
   report("open", `dir=${wanted || "-"} holat=${DIR}`);
@@ -56,15 +56,15 @@ async function boot() {
   startFlow();
 }
 
-// Ruxsatlar ketma-ket: avval kamera, keyin joylashuv. Android Telegram'da ikki ruxsat
-// oynasi bir vaqtda chiqsa, biri yo'qolib, so'rov osilib qoladi.
+// Разрешения по очереди: сначала камера, потом геопозиция. Если в Android Telegram два окна
+// разрешений появляются одновременно, одно пропадает и запрос зависает.
 async function startFlow() {
   await startCamera();
   getLocation();
 }
 
-// Noto'g'ri tugma bosilgan (masalan ish boshlangan-u, yana "boshladim"): kamera/joylashuvga
-// tegmaymiz — avval aniq tushuntiramiz, foydalanuvchi tasdiqlagandan keyingina ochamiz.
+// Нажата не та кнопка (например, работа уже начата, а снова «boshladim»): камеру/геопозицию
+// не трогаем — сначала понятно объясняем и открываем только после подтверждения пользователя.
 function renderMismatch(wanted) {
   const t = STATE.last ? esc(STATE.last.ts.slice(11, 16)) : "";
   const started = wanted === "in";

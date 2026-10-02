@@ -1,9 +1,9 @@
 #!/bin/sh
-# PostgreSQL zaxirasi: backups/ferma_YYYYMMDD_HHMMSS.dump (pg_dump custom format).
-# Oxirgi KEEP_DAYS kundagilari saqlanadi. Cron misol (har kuni 02:30):
+# Резервная копия PostgreSQL: backups/ferma_YYYYMMDD_HHMMSS.dump (формат pg_dump custom).
+# Хранятся копии за последние KEEP_DAYS дней. Пример cron (каждый день в 02:30):
 #   30 2 * * * cd /opt/ferma && ./deploy/backup.sh >> backups/backup.log 2>&1
-# Tiklash:
-#   docker compose exec -T db pg_restore -U ferma -d ferma --clean --if-exists < backups/<fayl>.dump
+# Восстановление:
+#   docker compose exec -T db pg_restore -U ferma -d ferma --clean --if-exists < backups/<файл>.dump
 set -eu
 cd "$(dirname "$0")/.."
 KEEP_DAYS="${KEEP_DAYS:-30}"

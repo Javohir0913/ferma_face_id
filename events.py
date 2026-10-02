@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Ferma — kameradan (KIRISH yoki CHIQISH) kelgan HTTP Listening event'ini
-qayta ishlaydigan umumiy mantiq. Ikkala endpoint (`/event/kirish`,
-`/event/chiqish`) shu funksiyani `gate` farqi bilan chaqiradi.
+Ферма — общая логика обработки события HTTP Listening от камеры
+(ВХОД или ВЫХОД). Оба эндпоинта (`/event/kirish`,
+`/event/chiqish`) вызывают эту функцию, различаясь только `gate`.
 
-Auth yo'q — kamera sozlamasida buni ta'minlab bo'lmaydi, shuning uchun
-faqat ixtiyoriy IP whitelist bilan cheklanadi. Har doim HTTP 200
-qaytariladi — aks holda kamera eventni qayta-qayta yuborishga urinaveradi.
+Авторизации нет — в настройках камеры её не обеспечить, поэтому
+ограничение только необязательным белым списком IP. Всегда возвращается
+HTTP 200 — иначе камера будет снова и снова пытаться отправить событие.
 """
 import logging
 import uuid
@@ -75,15 +75,15 @@ async def handle_event(gate: str, request: Request) -> dict:
         employee_no = fields.get("employee_no")
         confidence = fields.get("confidence")
         serial_no = fields.get("serial_no")
-        # Kamera vaqti-vaqti bilan bo'sh/administrativ signal yuboradi
-        # (masalan currentVerifyMode=invalid, xodim/ism yo'q) — bu haqiqiy
-        # yuz tanish urinishi emas, DB'ga ham yozilmaydi.
+        # Камера время от времени шлёт пустой/служебный сигнал
+        # (например, currentVerifyMode=invalid, нет сотрудника/имени) — это не настоящая
+        # попытка распознавания лица, в БД тоже не записывается.
         has_outcome = bool(fields.get("has_outcome", True)) if fields else False
 
-        # Rasm Telegram'ga xotiradagi baytlardan (image_bytes) to'g'ridan-to'g'ri
-        # yuboriladi — diskka faqat vaqtincha yoziladi, funksiya tugagach
-        # (pastdagi `finally`da, qaysi yo'l bilan chiqishidan qat'iy nazar)
-        # o'chiriladi. Doimiy nusxa disk to'lib ketishiga sabab bo'lardi.
+        # Фото отправляется в Telegram прямо из байтов в памяти (image_bytes) —
+        # на диск пишется только временно и после завершения функции
+        # (в `finally` ниже, каким бы путём ни был выход)
+        # удаляется. Постоянная копия привела бы к переполнению диска.
         snapshot_path = None
         try:
             if not has_outcome and not debug_dump:
@@ -98,8 +98,8 @@ async def handle_event(gate: str, request: Request) -> dict:
 
             send_unmatched_alert = has_outcome
             if not matched and has_outcome:
-                # Gunicorn ko'p worker bilan ishlaganda xotira o'rniga DB'dagi
-                # shu gate uchun oxirgi "unmatched" yozuv vaqtiga qaraymiz.
+                # Когда gunicorn работает с несколькими воркерами, вместо памяти смотрим
+                # на время последней «unmatched»-записи для этого gate в БД.
                 try:
                     last_row = await database.fetch_one(
                         events.select()
@@ -115,8 +115,8 @@ async def handle_event(gate: str, request: Request) -> dict:
                 except Exception:
                     logger.exception("%s: debounce tekshiruvida xato", gate)
 
-            # Insertdan oldin tekshiriladi: joriy event hali bazada yo'q, shuning
-            # uchun bugun undan oldingi kirish topilmasa — bu birinchi kirish.
+            # Проверяется до insert: текущего события в базе ещё нет, поэтому
+            # если сегодня до него вход не найден — это первый вход.
             first_today = False
             if matched and gate == "kirish" and employee_no:
                 local_time = event_time.replace(tzinfo=None)
@@ -151,9 +151,9 @@ async def handle_event(gate: str, request: Request) -> dict:
                 )
             except Exception as e:
                 if serial_no and "unique" in str(e).lower():
-                    # Kamera tarmoq/ACK muammosi tufayli bitta eventni bir necha
-                    # marta qayta yuborishi mumkin (bir xil serialNo) — DB'dagi
-                    # UNIQUE index buni ushlaydi, jim o'tkazib yuboramiz.
+                    # Из-за проблем сети/ACK камера может отправить одно событие
+                    # несколько раз (тот же serialNo) — UNIQUE-индекс в БД
+                    # это ловит, тихо пропускаем.
                     logger.info("%s: takroriy event (serialNo=%s) — o'tkazib yuborildi", gate, serial_no)
                     return {"status": "duplicate"}
                 logger.exception("%s: DB ga yozishda xato", gate)

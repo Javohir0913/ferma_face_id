@@ -76,7 +76,7 @@ function qs(params) {
 }
 function isSuper() { return ME && ME.level === "superadmin"; }
 function isAdmin() { return ME && (ME.level === "admin" || ME.level === "superadmin"); }
-// Boshqalarning davomatini faqat admin ko'radi; qolganlar faqat o'zinikini.
+// Посещаемость других видит только админ; остальные — только свою.
 function isViewer() { return isAdmin(); }
 const LEVEL_NAMES = {superadmin: "👑 Super admin", admin: "🛠 Admin"};
 function levelName(l) { return LEVEL_NAMES[l] || "xodim"; }
@@ -87,7 +87,7 @@ let ROUTE_SEQ = 0;
 const STALE = "__stale__";
 
 async function api(path, opts = {}) {
-  // Sahifa almashgan bo'lsa, eski so'rov javobi yangi sahifani bosib ketmasin.
+  // Если страница сменилась, ответ старого запроса не должен перезаписать новую страницу.
   const seq = ROUTE_SEQ;
   const headers = Object.assign({}, opts.headers || {});
   if (TOKEN) headers["Authorization"] = "Bearer " + TOKEN;
@@ -119,7 +119,7 @@ function askConfirm(m) {
 }
 function alertMsg(m) { if (m === STALE) return; if (tg && tg.showAlert) tg.showAlert(m); else alert(m); }
 
-// ------------------------------ theme ------------------------------
+// ------------------------------ тема ------------------------------
 function applyTheme() {
   if (!tg) return;
   const p = tg.themeParams || {};
@@ -130,10 +130,10 @@ function applyTheme() {
   Object.entries(map).forEach(([k, v]) => { if (v) root.style.setProperty(k, v); });
 }
 
-// ------------------------------ auth ------------------------------
+// ------------------------------ авторизация ------------------------------
 async function boot() {
   if (tg) { document.documentElement.classList.add("in-tg"); tg.ready(); tg.expand(); applyTheme(); tg.onEvent("themeChanged", applyTheme); }
-  // Sozlamalar va Telegram avtorizatsiyasi bir vaqtda — sekin tarmoqda bitta kutish kam.
+  // Настройки и авторизация Telegram одновременно — на медленной сети на одно ожидание меньше.
   const cfgP = api("/config", {noAuthRedirect: true}).catch(() => ({}));
   const authP = tg ? api("/auth/webapp", {method: "POST", json: {init_data: tg.initData}, noAuthRedirect: true}) : null;
   CFG = await cfgP;
@@ -164,7 +164,7 @@ function buildNav() {
   const items = allowedNav();
   document.getElementById("side-nav").innerHTML = items.map(n =>
     `${n.id === "admin" ? '<div class="sep"></div>' : ""}<a href="#/${n.id}" data-tab="${n.id}">${icon(n.id)}<span>${n.label}</span></a>`).join("");
-  // Telefonda: 4 ta asosiy bo'lim + qolganlari "Menyu" da.
+  // На телефоне: 4 основных раздела + остальные в «Menyu».
   const primary = items.length <= 5 ? items : items.slice(0, 4);
   const bottom = primary.map(n => `<a href="#/${n.id}" data-tab="${n.id}"><span class="pill">${icon(n.id)}</span>${n.short || n.label}</a>`);
   if (items.length > 5) bottom.push(`<a href="#/more" data-tab="more"><span class="pill">${icon("more")}</span>Menyu</a>`);
@@ -248,7 +248,7 @@ window.onTelegramAuth = async (user) => {
   } catch (e) { document.getElementById("login-err").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 
-// ------------------------------ routing ------------------------------
+// ------------------------------ маршрутизация ------------------------------
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "") || homeTab();
   const [path, q] = h.split("?");
@@ -257,7 +257,7 @@ function parseHash() {
 function go(path, params) { location.hash = "#/" + path + qs(params || {}); }
 
 async function route(silent) {
-  // silent=true — orqa fonda yangilash: yuklanish ko'rinishi yo'q, sahifa joyida qoladi.
+  // silent=true — обновление в фоне: без индикатора загрузки, страница остаётся на месте.
   silent = silent === true;
   ROUTE_SEQ++;
   const {parts, params} = parseHash();
@@ -283,9 +283,9 @@ async function route(silent) {
     else if (parts[0] === "admin" && isAdmin()) await pageAdmin(parts[1] || "employees");
     else go(homeTab());
   } catch (e) {
-    // Orqa fondagi yangilash xatosi sahifani buzmasin — eski ma'lumot ko'rinib turaveradi.
+    // Ошибка фонового обновления не должна ломать страницу — продолжают показываться старые данные.
     if (!silent && e.message !== "Avtorizatsiya kerak" && e.message !== STALE) {
-      // Xato bo'lsa ham foydalanuvchi qamalib qolmasin — sahifani standart sanalar bilan ochish tugmasi.
+      // Даже при ошибке пользователь не должен застрять — кнопка открыть страницу с датами по умолчанию.
       $app.innerHTML = `<div class="err">${esc(e.message)}</div>
         <button class="btn ghost" id="reset-page">↺ Standart sanalar bilan ochish</button>`;
       document.getElementById("reset-page").onclick = () => { location.hash = location.hash.split("?")[0]; };
@@ -293,8 +293,8 @@ async function route(silent) {
   }
 }
 
-// Sana oralig'ini serverga yuborishdan oldin tekshirish: xato bo'lsa sahifa almashmaydi,
-// sana maydonlari joyida qoladi va xabar ularning tagida chiqadi.
+// Проверка диапазона дат до отправки на сервер: при ошибке страница не меняется,
+// поля дат остаются на месте, а сообщение выводится под ними.
 const MAX_RANGE_DAYS = 366;
 function rangeGo(path, extra) {
   const from = document.getElementById("from").value, to = document.getElementById("to").value;
@@ -311,7 +311,7 @@ function rangeGo(path, extra) {
   if (!msg) go(path, Object.assign({from, to}, extra || {}));
 }
 
-// ------------------------------ Hozir ------------------------------
+// ------------------------------ Сейчас ------------------------------
 let NOW_TIMER = null;
 function ago(sec) {
   if (sec < 60) return "hozirgina";
@@ -326,7 +326,7 @@ const NOW_GROUPS = [
   ["left", "Chiqib ketgan", "st-tolik-emas", "Bugun kelgan, oxirgi belgi — chiqish", "bad", "🔴"],
   ["absent", "Bugun kelmagan", "st-gray", "So'nggi 14 kunda kelgan, bugun belgi yo'q", "gray", "⚪"],
 ];
-// Tanlangan filtr avtomatik yangilanishda ham saqlanib qoladi (null = hammasi).
+// Выбранный фильтр сохраняется и при автообновлении (null = все).
 let NOW_FILTER = null;
 const NOW_ICONS = {inside: "check", outside_work: "checkins", left: "logout", absent: "clock"};
 
@@ -376,7 +376,7 @@ async function pageNow() {
     document.getElementById("now-groups").innerHTML = nowGroupsHtml(d);
     bindRows();
   };
-  // Bir marta bosish — filtr; yana bosish — olib tashlash; boshqasini bosish — o'shanga o'tish.
+  // Одно нажатие — фильтр; повторное — снять; нажатие на другой — переключиться на него.
   document.querySelectorAll(".stat[data-filter]").forEach(b => b.onclick = () => {
     NOW_FILTER = NOW_FILTER === b.dataset.filter ? null : b.dataset.filter;
     paint();
@@ -393,7 +393,7 @@ async function pageNow() {
   }, 60000);
 }
 
-// ------------------------------ Kunlik ------------------------------
+// ------------------------------ За день ------------------------------
 async function pageDay(p) {
   const date = p.date || todayTashkent();
   const d = await api("/day" + qs({date, role: p.role}));
@@ -433,7 +433,7 @@ async function pageDay(p) {
     el.onclick = () => go("emp/" + encodeURIComponent(el.dataset.emp), {from: addDays(date, -6), to: date}));
 }
 
-// ------------------------------ Xodim kartochkasi ------------------------------
+// ------------------------------ Карточка сотрудника ------------------------------
 function timelineHtml(tl) {
   let out = "", prev = null;
   for (const e of tl) {

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Bazadan ma'lumot yuklab, engine orqali smenalarni hisoblaydi."""
+"""Загружает данные из базы и считает смены через engine."""
 from __future__ import annotations
 
 import html
@@ -23,7 +23,7 @@ TZ = ZoneInfo(TIMEZONE)
 ROLE_DEFAULTS = {
     "standart": ("Standart", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
     "soguvchi": ("Sog'uvchi", {"mode": "day", "day_boundary": "03:00", "debounce_sec": 60, "max_shift_hours": 23}),
-    # Smenalar 09:00–21:00 va 21:00–09:00; boshlanish oynasi ±2 soat.
+    # Смены 09:00–21:00 и 21:00–09:00; окно начала ±2 часа.
     "qorovul": ("Qorovul", {"mode": "shift", "day_boundary": "12:00", "debounce_sec": 60, "max_shift_hours": 14,
                             "day_start": "09:00", "night_start": "21:00"}),
     "tashqi": ("Tashqi ish", {"mode": "day", "day_boundary": "00:00", "debounce_sec": 60, "max_shift_hours": 16}),
@@ -43,24 +43,24 @@ SETTING_DEFAULTS = {
     "daily_summary_time": "08:00",
     "remind_after_h": "3",
     "auto_resolve_after_h": "6",
-    # Botga /start bosgan, hali biriktirilmagan odamlar haqida xabar oladigan bitta Telegram ID.
+    # Один Telegram ID, который получает сообщения о людях, нажавших /start, но ещё не привязанных.
     "link_admin_id": "",
-    # Qorovulni smena naqshidan avtomatik aniqlash (sinovda xato natija berdi — o'chiq).
+    # Автоопределение охранников по шаблону смен (на тестах давало неверный результат — выключено).
     "auto_guard_detect": "0",
 }
 
-# 1-bosqich tahlilidagi guruhlar — boshlang'ich taxmin, admin sahifasida tuzatiladi.
-# Boshlang'ich rollar: faqat qorovullar (ferma rahbari aytgan). Qolganlar — standart,
-# sog'uvchilarni admin o'zi belgilaydi.
+# Группы из анализа 1-го этапа — начальное предположение, исправляется на странице администрирования.
+# Начальные роли: только охранники (сказал руководитель фермы). Остальные — стандарт,
+# доярок админ назначает сам.
 SEED_ROLES = {
     "qorovul": ["00000020", "00000034"],  # Abdumutal Abdullayev, Fayziyev Tavakkal
 }
-# Qorovul qo'lda belgilanmaydi — detect_guards() smena naqshidan o'zi aniqlaydi.
+# Охранник не назначается вручную — detect_guards() определяет сам по шаблону смен.
 GUARD_LOOKBACK_DAYS = 28
 GUARD_MIN_SHIFTS = 6
 GUARD_MIN_RATIO = 0.4
 GUARD_TOL_H = 1.5
-# Bitta odam ikki ID bilan bo'lsa — admin sahifasida qo'lda birlashtiriladi.
+# Если у человека два ID — объединяются вручную на странице администрирования.
 SEED_MERGES: dict[str, str] = {}
 SEED_INACTIVE = {"1"}
 SEED_ROLE_FROM = "2026-07-01"
@@ -91,15 +91,15 @@ _NEW_EMPLOYEES_SQL = (
 
 
 async def sync_employees() -> None:
-    """events'da paydo bo'lgan yangi xodimlarni employees'ga qo'shadi (ism — oxirgisi)."""
+    """Добавляет в employees новых сотрудников, появившихся в events (имя — последнее)."""
     await database.execute(_NEW_EMPLOYEES_SQL)
 
 
 def seed_sync(admin_ids: list[int], superadmin_id: Optional[int] = None) -> list[int]:
-    """Boshlang'ich ma'lumotlar. Bir nechta gunicorn worker bir vaqtda ishga tushsa ham faqat bittasi
-    yozadi (SQLite — BEGIN IMMEDIATE, PostgreSQL — advisory lock), qolganlari kutib, tayyor holatni ko'radi.
-    Super admin .env dagi SUPERADMIN_TELEGRAM_ID dan olinadi (boshqa super admin bo'lsa admin qilinadi).
-    Yangi yaratilgan adminlar ro'yxatini qaytaradi (ularga xabar yuborish uchun)."""
+    """Начальные данные. Даже если несколько воркеров gunicorn запускаются одновременно, пишет
+    только один (SQLite — BEGIN IMMEDIATE, PostgreSQL — advisory lock), остальные ждут и видят готовое состояние.
+    Суперадмин берётся из SUPERADMIN_TELEGRAM_ID в .env (другой суперадмин, если есть, становится админом).
+    Возвращает список вновь созданных админов (чтобы отправить им сообщение)."""
     from sqlalchemy import create_engine, text
     from database import IS_SQLITE, sync_url
     if IS_SQLITE:
@@ -234,7 +234,7 @@ _GUARD_CACHE: dict = {"at": None, "value": set()}
 
 
 async def detect_guards(ctx: "Context") -> set[str]:
-    """Oxirgi 28 kundagi smena naqshi bo'yicha qorovullarni aniqlaydi (10 daqiqa kesh)."""
+    """Определяет охранников по шаблону смен за последние 28 дней (кэш 10 минут)."""
     now = now_local()
     if _GUARD_CACHE["at"] and (now - _GUARD_CACHE["at"]).total_seconds() < 600:
         return _GUARD_CACHE["value"]
@@ -278,7 +278,7 @@ async def load_punches(ctx: Context, start: datetime, end: datetime, only: Optio
 
 
 async def compute_range(d_from: date, d_to: date, only: Optional[str] = None, ctx: Optional[Context] = None) -> tuple[Context, list[Shift]]:
-    """[d_from, d_to] oralig'idagi smena sanalari uchun barcha smenalar."""
+    """Все смены для дат смен в интервале [d_from, d_to]."""
     ctx = ctx or await load_context()
     start = datetime.combine(d_from - timedelta(days=1), datetime.min.time())
     end = datetime.combine(d_to + timedelta(days=2), datetime.min.time()) + timedelta(hours=12)
@@ -359,7 +359,7 @@ async def save_chat_location(uid: int, lat: float, lon: float, acc, live_until, 
 
 
 async def fresh_chat_location(uid: int) -> Optional[dict]:
-    """Chatdagi joylashuv hali yaroqlimi: oddiy — 3 daqiqa, jonli — ulashish davom etsa va 10 daqiqada yangilangan bo'lsa."""
+    """Годна ли ещё геопозиция из чата: обычная — 3 минуты, трансляция — если идёт и обновлялась за 10 минут."""
     r = await database.fetch_one(select(tg_locations).where(tg_locations.c.telegram_user_id == uid))
     if not r:
         return None
@@ -375,8 +375,8 @@ async def fresh_chat_location(uid: int) -> Optional[dict]:
 
 
 async def checkin_permissions(employee_no: str) -> dict:
-    """Ishni boshlamasdan tugatib bo'lmaydi; boshlangan ishni tugatmasdan qayta boshlab bo'lmaydi.
-    16 soatdan eski ochiq "boshladim" yopilmagan hisoblanadi va yangi ish boshlashga to'sqinlik qilmaydi."""
+    """Нельзя закончить работу, не начав её; нельзя начать заново, не закончив начатую.
+    Открытое «начал» старше 16 часов считается незакрытым и не мешает начать новую работу."""
     last = await database.fetch_one(select(checkins).where(checkins.c.employee_no == employee_no)
                                     .order_by(checkins.c.ts.desc()).limit(1))
     open_ = bool(last and last["direction"] == "in" and now_local() - last["ts"] <= OPEN_CHECKIN_MAX)
@@ -411,7 +411,7 @@ async def _unique_login(base: str, uid: int) -> str:
 
 
 async def issue_credentials(uid: int, name: str, reset: bool = False) -> tuple[str, Optional[str]]:
-    """Login/parol yaratadi (yoki reset=True bo'lsa parolni yangilaydi). Parol faqat shu yerda ochiq ko'rinadi."""
+    """Создаёт логин/пароль (или при reset=True обновляет пароль). Пароль виден в открытом виде только здесь."""
     from davomat.auth import generate_password, hash_password
     existing = await database.fetch_one(select(web_credentials).where(web_credentials.c.telegram_user_id == uid))
     if existing and not reset:
@@ -435,7 +435,7 @@ async def drop_credentials_if_orphan(uid: int):
 
 
 def main_keyboard(rights: dict) -> Optional[dict]:
-    """Huquqqa mos doimiy klaviatura (WebApp tugmalari faqat HTTPS bilan ishlaydi)."""
+    """Постоянная клавиатура по правам (кнопки WebApp работают только с HTTPS)."""
     if not PUBLIC_BASE_URL:
         return None
     base = f"{PUBLIC_BASE_URL}/davomat"
@@ -479,9 +479,9 @@ async def _set_creds_delivered(uid: int, delivered: bool) -> None:
 
 
 async def notify_linked(uid: int, reset: bool = False) -> bool:
-    """Biriktirilganda (yoki parol qayta berilganda) foydalanuvchining Telegramiga xabar.
-    Yetib borganmi — qaytaradi va eslab qoladi: foydalanuvchi botga hali /start yozmagan
-    bo'lsa xabar yetmaydi, keyin /start yozganda parol avtomatik qayta yuboriladi."""
+    """Сообщение в Telegram пользователю при привязке (или при новой выдаче пароля).
+    Возвращает и запоминает, дошло ли оно: если пользователь ещё не писал боту /start,
+    сообщение не дойдёт — тогда пароль будет отправлен повторно автоматически, когда он напишет /start."""
     import telegram
     rights = await rights_of(uid)
     login, password = await issue_credentials(uid, rights["name"], reset=reset)

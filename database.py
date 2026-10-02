@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Ferma — jadval ta'rifi (databases + SQLAlchemy core). SQLite (lokal test) va PostgreSQL (Docker) bilan ishlaydi."""
+"""Ферма — описание таблиц (databases + SQLAlchemy core). Работает с SQLite (локальный тест) и PostgreSQL (Docker)."""
 import datetime
 
 from sqlalchemy import (
@@ -24,7 +24,7 @@ database = Database(DATABASE_URL)
 
 
 def sync_url() -> str:
-    """create_all/seed uchun sinxron drayver manzili."""
+    """Адрес синхронного драйвера для create_all/seed."""
     if IS_SQLITE:
         return DATABASE_URL.replace("+aiosqlite", "")
     return "postgresql+psycopg://" + DATABASE_URL.split("://", 1)[1]
@@ -38,8 +38,8 @@ events = Table(
     Column("event_type", String, nullable=True),
     Column("person_name", String, nullable=True),
     Column("employee_no", String, nullable=True),
-    Column("serial_no", String, nullable=True),            # kameraning o'z serialNo'si
-    Column("matched", Integer, default=0),                 # 1 = tanildi, 0 = tanilmadi
+    Column("serial_no", String, nullable=True),            # собственный serialNo камеры
+    Column("matched", Integer, default=0),                 # 1 = распознан, 0 = не распознан
     Column("confidence", Float, nullable=True),
     Column("snapshot_path", String, nullable=True),
     Column("event_time", DateTime, nullable=True),
@@ -47,20 +47,20 @@ events = Table(
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
-# Bir xil kameradan (gate) bir xil serialNo ikki marta kelsa — bu takroriy
-# push (tarmoq/ACK muammosi), UNIQUE index buni bloklaydi. Ikki xil gate
-# (kirish/chiqish) o'z-o'zicha mustaqil sanaladi, shuning uchun (gate,
-# serial_no) juftligi bo'yicha. SQLite va PostgreSQL'da UNIQUE indexda NULL
-# qiymatlar bir-biriga to'qnashmaydi, shuning uchun serial_no bo'sh bo'lgan
-# yozuvlarga (masalan parse-fail debug qatorlariga) bu cheklov xalaqit bermaydi.
+# Если от одной камеры (gate) один и тот же serialNo пришёл дважды — это повторный
+# push (проблема сети/ACK), UNIQUE-индекс его блокирует. Разные gate
+# (вход/выход) считаются независимыми, поэтому индекс по паре (gate,
+# serial_no). В SQLite и PostgreSQL значения NULL в UNIQUE-индексе
+# не конфликтуют между собой, поэтому записям с пустым serial_no
+# (например, отладочным строкам parse-fail) это ограничение не мешает.
 Index("idx_events_gate_serial", events.c.gate, events.c.serial_no, unique=True)
-# Mavjud jadvalga create_all index qo'shmaydi — create_all() ichida alohida yaratiladi.
+# create_all не добавляет индекс в существующую таблицу — он создаётся отдельно в create_all().
 idx_events_emp_time = Index("idx_events_emp_time", events.c.employee_no, events.c.event_time)
 
 
-# ----------------------------- Davomat qatlami -----------------------------
-# Xom `events` hech qachon o'zgartirilmaydi. Hisob har safar shu jadvallar +
-# events + checkins asosida qayta hisoblanadi.
+# ----------------------------- Слой посещаемости -----------------------------
+# Сырые `events` никогда не изменяются. Расчёт каждый раз выполняется заново
+# на основе этих таблиц + events + checkins.
 
 employees = Table(
     "employees",
@@ -68,7 +68,7 @@ employees = Table(
     Column("employee_no", String, primary_key=True),
     Column("full_name", String, nullable=False),
     Column("telegram_user_id", BigInteger, nullable=True, unique=True),
-    # Kamerada bitta odam ikki ID bilan ro'yxatda bo'lsa — asosiy ID'ga ulanadi.
+    # Если человек зарегистрирован в камере под двумя ID — привязывается к основному ID.
     Column("merged_into", String, nullable=True),
     Column("active", Integer, default=1),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
@@ -89,7 +89,7 @@ employee_roles = Table(
     Column("employee_no", String, nullable=False, index=True),
     Column("role", String, nullable=False),
     Column("valid_from", String, nullable=False),  # YYYY-MM-DD
-    Column("valid_to", String, nullable=True),     # YYYY-MM-DD, NULL = hozirgacha
+    Column("valid_to", String, nullable=True),     # YYYY-MM-DD, NULL = по сей день
     Column("created_by", BigInteger, nullable=True),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
@@ -101,7 +101,7 @@ checkins = Table(
     Column("employee_no", String, nullable=False, index=True),
     Column("telegram_user_id", BigInteger, nullable=False),
     Column("direction", String, nullable=False),  # "in" | "out"
-    Column("ts", DateTime, nullable=False),        # server vaqti, Toshkent
+    Column("ts", DateTime, nullable=False),        # время сервера, Ташкент
     Column("lat", Float, nullable=False),
     Column("lon", Float, nullable=False),
     Column("accuracy", Float, nullable=True),
@@ -116,7 +116,7 @@ corrections = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("employee_no", String, nullable=False, index=True),
-    Column("work_date", String, nullable=False),  # YYYY-MM-DD (smena sanasi)
+    Column("work_date", String, nullable=False),  # YYYY-MM-DD (дата смены)
     Column("field", String, nullable=False),      # "kirish" | "chiqish"
     Column("value", DateTime, nullable=True),
     Column("note", Text, nullable=True),
@@ -125,7 +125,7 @@ corrections = Table(
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
-# Qorovul smenasi turi aniqlanmaganda qabul qilingan qaror.
+# Решение, принятое, когда тип смены охранника не был определён.
 resolutions = Table(
     "resolutions",
     metadata,
@@ -133,7 +133,7 @@ resolutions = Table(
     Column("employee_no", String, nullable=False),
     Column("shift_start", DateTime, nullable=False),
     Column("shift_type", String, nullable=False),  # "kunduzgi" | "tungi"
-    Column("confirmed", Integer, default=1),       # 0 = tizim o'zi tanladi (tasdiqlanmagan)
+    Column("confirmed", Integer, default=1),       # 0 = система выбрала сама (не подтверждено)
     Column("created_by", BigInteger, nullable=True),
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
@@ -145,7 +145,7 @@ app_users = Table(
     Column("telegram_user_id", BigInteger, primary_key=True, autoincrement=False),
     Column("name", String, nullable=True),
     Column("level", String, nullable=False),         # "viewer" | "admin"
-    Column("is_responsible", Integer, default=0),   # istisno xabarlarini oladi
+    Column("is_responsible", Integer, default=0),   # получает сообщения об исключениях
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
@@ -179,8 +179,8 @@ tg_link_requests = Table(
     Column("created_at", DateTime, default=datetime.datetime.utcnow),
 )
 
-# Bot chatida yuborilgan oxirgi joylashuv (jonli joylashuv yangilanishlari ham) —
-# Mini App ichida GPS ishlamasa, check-in shu joylashuvdan foydalanadi.
+# Последняя геопозиция, отправленная в чат бота (включая обновления трансляции) —
+# если GPS не работает внутри Mini App, check-in использует эту геопозицию.
 tg_locations = Table(
     "tg_locations",
     metadata,
@@ -188,11 +188,11 @@ tg_locations = Table(
     Column("lat", Float, nullable=False),
     Column("lon", Float, nullable=False),
     Column("accuracy", Float, nullable=True),
-    Column("live_until", DateTime, nullable=True),  # UTC; jonli bo'lmasa NULL
+    Column("live_until", DateTime, nullable=True),  # UTC; NULL, если не трансляция
     Column("updated_at", DateTime, nullable=False),  # UTC
 )
 
-# Web uchun login/parol. Telegram hisobiga bog'lanadi (1 Telegram = 1 foydalanuvchi).
+# Логин/пароль для Web. Привязан к аккаунту Telegram (1 Telegram = 1 пользователь).
 web_credentials = Table(
     "web_credentials",
     metadata,
@@ -203,7 +203,7 @@ web_credentials = Table(
     Column("updated_at", DateTime, default=datetime.datetime.utcnow),
 )
 
-# Bot yuborgan istisno xabarlari — takror yubormaslik va eslatma uchun.
+# Сообщения бота об исключениях — чтобы не отправлять повторно и напоминать.
 notifications = Table(
     "notifications",
     metadata,
@@ -221,16 +221,16 @@ notifications = Table(
 
 
 def create_all():
-    """Jadval(lar)ni (agar mavjud bo'lmasa) yaratadi. main.py va bot ishga tushishda chaqiradi."""
+    """Создаёт таблицы (если их нет). Вызывается при запуске main.py и бота."""
     engine = create_engine(sync_url(), future=True)
     try:
         with engine.begin() as conn:
             if not IS_SQLITE:
-                # Bo'sh bazada 2 ta gunicorn worker bir vaqtda jadval yaratmasin — biri kutadi.
+                # На пустой базе 2 воркера gunicorn не должны одновременно создавать таблицы — один ждёт.
                 conn.exec_driver_sql("SELECT pg_advisory_xact_lock(4242002)")
             metadata.create_all(conn)
             idx_events_emp_time.create(conn, checkfirst=True)
-            # Super admin faqat bitta bo'lishi mumkin — baza darajasida kafolat.
+            # Суперадмин может быть только один — гарантия на уровне базы.
             conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_one_superadmin ON app_users(level) WHERE level = 'superadmin'")
     finally:
         engine.dispose()

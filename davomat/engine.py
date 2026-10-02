@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Davomat hisoblash mantiqi — bazaga bog'liq emas, sof funksiyalar.
+Логика расчёта посещаемости — не зависит от базы, чистые функции.
 
-Kirish: bitta xodimning kirish/chiqish belgilari (Face ID yoki Telegram check-in).
-Chiqish: smenalar (kun yoki qorovul smenasi) — ish soati, fermada o'tgan vaqt, holat.
+Вход: отметки входа/выхода одного сотрудника (Face ID или Telegram check-in).
+Выход: смены (день или смена охранника) — рабочее время, время на ферме, статус.
 
-Asosiy qoidalar (tahlil natijasiga ko'ra):
-  * Bir xil yo'nalishdagi, bir xil manbadan kelgan, `debounce_sec` ichidagi
-    belgilar bitta hisoblanadi (kirishda birinchisi, chiqishda oxirgisi qoladi).
-  * Ish soati = birinchi kirish -> oxirgi chiqish.
-  * Fermada = ish soati - tashqarida o'tgan vaqt (chiqish -> keyingi kirish).
-    Kirish kamerasi odamlarni ko'p o'tkazib yuboradi, shuning uchun ketma-ket
-    ikki chiqish orasidagi vaqt kesilmaydi, faqat belgi qo'yiladi.
-  * Juftsiz holat taxmin qilinmaydi — "to'liq emas".
+Основные правила (по результатам анализа):
+  * Отметки одного направления, из одного источника, в пределах `debounce_sec`
+    считаются одной (для входа остаётся первая, для выхода — последняя).
+  * Рабочее время = первый вход -> последний выход.
+  * На ферме = рабочее время - время снаружи (выход -> следующий вход).
+    Камера входа часто пропускает людей, поэтому время между двумя
+    выходами подряд не вычитается, только ставится пометка.
+  * Непарные отметки не угадываются — «неполный».
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ ST_INCOMPLETE = "to'liq emas"
 ST_UNCONFIRMED = "tasdiqlanmagan"
 ST_MANUAL = "qo'lda tuzatilgan"
 
-SHIFT_DAY = "kun"            # oddiy kunlik hisob (standart, sog'uvchi, tashqi)
+SHIFT_DAY = "kun"            # обычный дневной учёт (стандарт, доярка, выездные)
 SHIFT_GUARD_DAY = "kunduzgi"
 SHIFT_GUARD_NIGHT = "tungi"
 SHIFT_UNKNOWN = "noma'lum"
@@ -40,18 +40,18 @@ class Punch:
     direction: str            # IN | OUT
     source: str = "faceid"    # faceid | telegram
     ref: str = ""             # "e:<events.id>" | "c:<checkins.id>"
-    outside: bool = False     # Telegram check-in ferma hududidan tashqarida
+    outside: bool = False     # Telegram check-in вне территории фермы
 
 
 @dataclass(frozen=True)
 class RoleParams:
     code: str = "standart"
-    mode: str = "day"                   # "day" | "shift" (qorovul)
-    day_boundary: time = time(3, 0)     # shu vaqtgacha bo'lgan belgilar oldingi kunga
+    mode: str = "day"                   # "day" | "shift" (охранник)
+    day_boundary: time = time(3, 0)     # отметки до этого времени относятся к предыдущему дню
     debounce_sec: int = 60
-    max_shift_hours: float = 16.0       # "jarayonda" holati shu muddatgacha
-    day_start: time = time(9, 0)        # qorovul kunduzgi smena odatiy boshlanishi
-    night_start: time = time(21, 0)     # qorovul tungi smena odatiy boshlanishi
+    max_shift_hours: float = 16.0       # статус «в процессе» до этого срока
+    day_start: time = time(9, 0)        # обычное начало дневной смены охранника
+    night_start: time = time(21, 0)     # обычное начало ночной смены охранника
 
     @staticmethod
     def from_dict(code: str, d: dict) -> "RoleParams":
@@ -86,13 +86,13 @@ class Shift:
     shift_type: str
     kirish: Optional[datetime] = None
     chiqish: Optional[datetime] = None
-    span_sec: Optional[int] = None      # ish soati
-    inside_sec: Optional[int] = None    # fermada
+    span_sec: Optional[int] = None      # рабочее время
+    inside_sec: Optional[int] = None    # на ферме
     outside_sec: int = 0
     status: str = ST_INCOMPLETE
     flags: list[str] = field(default_factory=list)
-    punches: list[Punch] = field(default_factory=list)   # hisobga olinganlar
-    merged: list[Punch] = field(default_factory=list)    # dublikat sifatida birlashtirilgan
+    punches: list[Punch] = field(default_factory=list)   # учтённые
+    merged: list[Punch] = field(default_factory=list)    # объединённые как дубликаты
     corrected: bool = False
     unconfirmed: bool = False
 
@@ -106,10 +106,10 @@ def work_date_of(ts: datetime, boundary: time) -> date:
 
 
 def debounce(punches: Iterable[Punch], sec: int) -> tuple[list[Punch], list[Punch]]:
-    """Ketma-ket, bir xil yo'nalish + manba, `sec` ichidagi belgilarni birlashtiradi.
+    """Объединяет подряд идущие отметки одного направления + источника в пределах `sec`.
 
-    Zanjir bo'yicha: har bir belgi oldingisidan `sec` ichida bo'lsa bitta "portlash".
-    Kirishda birinchisi, chiqishda oxirgisi qoldiriladi.
+    По цепочке: если каждая отметка в пределах `sec` от предыдущей — это одна «серия».
+    Для входа остаётся первая, для выхода — последняя.
     """
     kept: list[Punch] = []
     merged: list[Punch] = []
@@ -136,8 +136,8 @@ def debounce(punches: Iterable[Punch], sec: int) -> tuple[list[Punch], list[Punc
 
 
 def _guard_type(start: datetime, rp: RoleParams) -> str:
-    """Smena turi hech qachon so'ralmaydi: kelish vaqti qaysi smena boshlanishiga
-    (09:00 yoki 21:00) yaqin bo'lsa — o'sha. Qorovul erta yoki kech kelishi mumkin."""
+    """Тип смены никогда не спрашивается: какое начало смены ближе ко времени прихода
+    (09:00 или 21:00) — та и есть. Охранник может прийти раньше или позже."""
     def dist(t: time) -> float:
         d = abs((start.hour * 60 + start.minute) - (t.hour * 60 + t.minute))
         return min(d, 24 * 60 - d)
@@ -145,14 +145,14 @@ def _guard_type(start: datetime, rp: RoleParams) -> str:
 
 
 def _guard_group(cur: list[Punch], rp: RoleParams) -> tuple[date, str, list[Punch]]:
-    # Smena sanasi va turi birinchi KIRISH bo'yicha: guruh boshida oldingi smenadan
-    # qolgan chiqish bo'lishi mumkin — u smena turini buzmasin.
+    # Дата и тип смены — по первому ВХОДУ: в начале группы может быть выход,
+    # оставшийся от предыдущей смены, — он не должен портить тип смены.
     a = next((p.ts for p in cur if p.direction == IN), cur[0].ts)
     return work_date_of(a, rp.day_boundary), _guard_type(a, rp), cur
 
 
 def group(kept: list[Punch], rp: RoleParams) -> list[tuple[date, str, list[Punch]]]:
-    """Belgilarni smenalarga ajratadi: (smena sanasi, smena turi, belgilar)."""
+    """Делит отметки на смены: (дата смены, тип смены, отметки)."""
     if not kept:
         return []
     if rp.mode != "shift":
@@ -161,19 +161,19 @@ def group(kept: list[Punch], rp: RoleParams) -> list[tuple[date, str, list[Punch
             by_day.setdefault(work_date_of(p.ts, rp.day_boundary), []).append(p)
         return [(d, SHIFT_DAY, ps) for d, ps in sorted(by_day.items())]
 
-    # Qorovul: smena birinchi belgidan boshlanadi va max_shift_hours ichidagi
-    # barcha belgilarni o'z ichiga oladi. Smena sanasi boshlanish vaqti va rolning
-    # kun chegarasi (qorovul uchun 12:00) bo'yicha — smena o'rtasidan bo'linmaydi.
-    # Ketma-ket ikki smena (masalan tungi, keyin kunduzgi): 10 soatdan keyingi
-    # yangi kirish — smena almashuvi.
+    # Охранник: смена начинается с первой отметки и включает все отметки
+    # в пределах max_shift_hours. Дата смены — по времени начала и границе дня
+    # роли (для охранника 12:00) — смена не разрезается посередине.
+    # Две смены подряд (например, ночная, затем дневная): новый вход
+    # после 10 часов — это смена смены.
     out: list[tuple[date, str, list[Punch]]] = []
     cur: list[Punch] = []
     for p in kept:
         if cur:
             first_in = next((x for x in cur if x.direction == IN), None)
-            # Davomiylik birinchi kirishdan; kirish hali yo'q bo'lsa — birinchi belgidan.
+            # Длительность — от первого входа; если входа ещё нет — от первой отметки.
             elapsed = (p.ts - (first_in or cur[0]).ts).total_seconds()
-            # Oldingi smenadan qolgan yolg'iz chiqish(lar) yangi smenaga qo'shilmasin.
+            # Одиночный выход(ы), оставшийся от предыдущей смены, не должен попасть в новую смену.
             leftover_exit = first_in is None and p.direction == IN and (p.ts - cur[-1].ts).total_seconds() >= 3600
             if leftover_exit or elapsed > rp.max_shift_hours * 3600 or (p.direction == IN and elapsed >= 10 * 3600):
                 out.append(_guard_group(cur, rp))
@@ -254,10 +254,10 @@ def compute(
     corrections: Optional[dict[date, list[Correction]]] = None,
     resolutions: Optional[dict[datetime, tuple[str, bool]]] = None,
 ) -> list[Shift]:
-    """Bitta xodim, bitta rol davri uchun smenalar ro'yxati.
+    """Список смен для одного сотрудника и одного периода роли.
 
-    resolutions: {smena boshlanish vaqti: (smena turi, tasdiqlanganmi)} — qorovul
-    smenasi turi aniqlanmaganda qabul qilingan qaror.
+    resolutions: {время начала смены: (тип смены, подтверждено ли)} — решение,
+    принятое, когда тип смены охранника не был определён.
     """
     kept, merged = debounce(punches, rp.debounce_sec)
     shifts: list[Shift] = []
@@ -285,12 +285,12 @@ def compute_with_roles(
     corrections: Optional[dict[date, list[Correction]]] = None,
     resolutions: Optional[dict[datetime, tuple[str, bool]]] = None,
 ) -> list[Shift]:
-    """Rol vaqt bilan o'zgarsa, har bir rol davri alohida hisoblanadi —
-    eski oylar yangi rol parametrlari bilan qayta buzilmaydi."""
+    """Если роль меняется со временем, каждый период роли считается отдельно —
+    старые месяцы не пересчитываются по параметрам новой роли."""
     segments: list[tuple[RoleParams, list[Punch]]] = []
     for p in sorted(punches, key=lambda x: x.ts):
-        # Rol sanasi kun chegarasi (03:00) bo'yicha aniqlanadi, aks holda
-        # yarim tundan keyingi chiqish boshqa rol davriga tushib qolishi mumkin.
+        # Дата роли определяется по границе дня (03:00), иначе
+        # выход после полуночи может попасть в период другой роли.
         rp = role_at(work_date_of(p.ts, time(3, 0)))
         if segments and segments[-1][0] == rp:
             segments[-1][1].append(p)
@@ -303,11 +303,11 @@ def compute_with_roles(
 
 
 def guard_shift_count(punches: Iterable[Punch], day_start: time, night_start: time, tol_h: float = 1.5) -> tuple[int, int]:
-    """Qorovul smenalari sonini va ishlangan kunlar sonini qaytaradi.
+    """Возвращает число смен охранника и число отработанных дней.
 
-    Smena: kirish ~kunduzgi boshlanishda va chiqish shu kuni ~tungi boshlanishda
-    (09:00 -> 21:00), yoki kirish ~tungi boshlanishda va ertasi kuni chiqish
-    ~kunduzgi boshlanishda (21:00 -> 09:00).
+    Смена: вход ~в начале дневной смены и выход в тот же день ~в начале ночной
+    (09:00 -> 21:00), или вход ~в начале ночной и выход на следующий день
+    ~в начале дневной (21:00 -> 09:00).
     """
     def near(ts: datetime, t: time) -> bool:
         x = ts.hour + ts.minute / 60

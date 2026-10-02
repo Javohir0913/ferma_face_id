@@ -3,11 +3,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Testlar hech qachon haqiqiy bazaga yoki Telegramga tegmasligi uchun —
-# modullar import qilinishidan OLDIN muhit o'zgaruvchilari o'rnatiladi.
+# Чтобы тесты никогда не трогали настоящую базу или Telegram —
+# переменные окружения задаются ДО импорта модулей.
 _TMP = Path(tempfile.mkdtemp(prefix="ferma_test_"))
-# TEST_DATABASE_URL=postgresql+asyncpg://.../ferma_test berilsa — testlar PostgreSQL'da yuradi
-# (baza har safar tozalanadi, shuning uchun nomida "test" bo'lishi shart).
+# Если задан TEST_DATABASE_URL=postgresql+asyncpg://.../ferma_test — тесты идут на PostgreSQL
+# (база каждый раз очищается, поэтому в имени обязательно должно быть «test»).
 _PG = os.environ.get("TEST_DATABASE_URL", "")
 os.environ["DATABASE_URL"] = _PG or f"sqlite+aiosqlite:///{(_TMP / 'test.db').as_posix()}"
 if _PG:

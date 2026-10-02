@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""/api/davomat/... — hisobot, check-in va admin JSON endpointlari."""
+"""/api/davomat/... — JSON-эндпоинты отчётов, check-in и администрирования."""
 from __future__ import annotations
 
 import html
@@ -77,7 +77,7 @@ async def _login(uid: int, name: str) -> JSONResponse:
     return _session_response(uid, name, u["level"] if u else None, e["employee_no"] if e else None)
 
 
-# ------------------------------- auth -------------------------------
+# ------------------------------- авторизация -------------------------------
 
 class WebAppAuth(BaseModel):
     init_data: str
@@ -112,7 +112,7 @@ class PasswordLogin(BaseModel):
     password: str
 
 
-# Parol terishga qarshi: login bo'yicha 5 ta xato -> 10 daqiqa blok (har worker o'zida).
+# Защита от перебора паролей: 5 ошибок по логину -> блокировка на 10 минут (в каждом воркере своя).
 _FAILS: dict[str, tuple[int, float]] = {}
 
 
@@ -214,7 +214,7 @@ async def download_link(body: DownloadLinkIn, actor: dict = Depends(require_view
     return {"url": f"{full}?{query}{sep}dl={token}"}
 
 
-# ------------------------------ hisobot ------------------------------
+# ------------------------------ отчёты ------------------------------
 
 @router.get("/employees")
 async def list_employees(actor: dict = Depends(require_viewer)):
@@ -269,7 +269,7 @@ async def employee_card(employee_no: str, from_: Optional[str] = Query(None, ali
 
 @router.get("/now")
 async def now_status(actor: dict = Depends(require_viewer)):
-    """Hozirgi holat: fermada / tashqarida ishlamoqda / chiqib ketgan / bugun kelmagan."""
+    """Текущее состояние: на ферме / работает снаружи / ушёл / сегодня не приходил."""
     from davomat.engine import work_date_of, debounce
     from datetime import time as _time
     now = service.now_local()
@@ -283,7 +283,7 @@ async def now_status(actor: dict = Depends(require_viewer)):
             continue
         ps = punches.get(emp, [])
         if not ps:
-            continue  # 14 kundan beri umuman ko'rinmagan — ro'yxatni to'ldirmaslik uchun
+            continue  # не появлялся 14 дней — чтобы не засорять список
         kept, _ = debounce(ps, 60)
         last = kept[-1]
         todays = [p for p in kept if p.ts >= day_start]
@@ -295,8 +295,8 @@ async def now_status(actor: dict = Depends(require_viewer)):
             "first_today": todays[0].ts.strftime("%Y-%m-%d %H:%M:%S") if todays else None,
             "since_sec": int((now - last.ts).total_seconds()),
         }
-        # Qorovul tungi smenasi kechadan davom etayotgan bo'lishi mumkin — shuning uchun
-        # "hozir ichkarida" oxirgi belgi bo'yicha (16 soat ichida), kun chegarasidan qat'i nazar.
+        # Ночная смена охранника может продолжаться со вчерашнего дня — поэтому
+        # «сейчас внутри» определяется по последней отметке (за 16 часов), независимо от границы дня.
         recent = (now - last.ts) <= timedelta(hours=16)
         if recent and last.direction == "in" and last.source == "telegram" and last.outside:
             groups["outside_work"].append(row)
@@ -468,7 +468,7 @@ _CLIENT_LOG_COUNT: dict[int, tuple[int, float]] = {}
 
 @router.post("/client-log")
 async def client_log(body: ClientLog, actor: dict = Depends(current_actor)):
-    """Telefondagi kamera/joylashuv xatolarini diagnostika uchun logga yozadi (1 daqiqada 20 tadan ko'p emas)."""
+    """Пишет в лог ошибки камеры/геопозиции с телефона для диагностики (не более 20 в минуту)."""
     import logging, time as _t
     n, since = _CLIENT_LOG_COUNT.get(actor["uid"], (0, _t.time()))
     if _t.time() - since > 60:
@@ -501,7 +501,7 @@ async def checkin(direction: str = Form(...), lat: Optional[float] = Form(None),
     if direction == "in" and not perms["can_in"]:
         raise HTTPException(409, "Ish allaqachon boshlangan. Avval «Ishni tugatdim» ni belgilang.")
     if loc_source == "chat":
-        # Koordinata mijozdan emas — bot chatida yuborilgan (GPS/jonli) joylashuvdan olinadi.
+        # Координаты берутся не от клиента, а из геопозиции, отправленной в чат бота (GPS/трансляция).
         cl = await service.fresh_chat_location(actor["uid"])
         if not cl:
             raise HTTPException(400, "Chatdagi joylashuv topilmadi yoki eskirgan. Botga jonli joylashuvni qayta ulashing.")
@@ -555,7 +555,7 @@ async def checkin(direction: str = Form(...), lat: Optional[float] = Form(None),
             "outside": bool(outside), "distance_m": round(distance) if distance is not None else None}
 
 
-# ------------------------------- admin -------------------------------
+# ------------------------------- админ -------------------------------
 
 @router.get("/admin/employees")
 async def admin_employees(actor: dict = Depends(require_admin)):
@@ -627,13 +627,13 @@ class RoleAssign(BaseModel):
 
 @router.post("/admin/employees/{employee_no}/role")
 async def admin_assign_role(employee_no: str, body: RoleAssign, actor: dict = Depends(require_admin)):
-    # "avto" — qo'lda berilgan rolni shu sanadan bekor qiladi, tizim o'zi aniqlaydi.
+    # «avto» — отменяет назначенную вручную роль с этой даты, система определяет сама.
     auto = body.role == "avto"
     if not auto and not await database.fetch_one(select(roles).where(roles.c.code == body.role)):
         raise HTTPException(400, "Rol topilmadi")
     vf = _d(body.valid_from, service.now_local().date())
     async with database.transaction():
-        # Keyingi davrlarni o'chirmaymiz — faqat ochiq qolgan oldingi davrni shu sanagacha yopamiz.
+        # Следующие периоды не удаляем — только закрываем открытый предыдущий период до этой даты.
         open_rows = await database.fetch_all(select(employee_roles).where(and_(
             employee_roles.c.employee_no == employee_no, employee_roles.c.valid_to.is_(None),
             employee_roles.c.valid_from < vf.isoformat())))
@@ -717,7 +717,7 @@ class CorrectionIn(BaseModel):
     employee_no: str
     work_date: str
     field: str
-    value: Optional[str] = None  # "YYYY-MM-DD HH:MM" yoki bo'sh
+    value: Optional[str] = None  # «YYYY-MM-DD HH:MM» или пусто
     note: str = ""
 
 
@@ -786,7 +786,7 @@ class UserIn(BaseModel):
 
 
 def _can_manage(actor: dict, target_level) -> bool:
-    """Super admin hammani boshqaradi; admin faqat viewer'larni (va hali darajasi yo'qlarni)."""
+    """Суперадмин управляет всеми; админ — только viewer'ами (и теми, у кого ещё нет уровня)."""
     if actor["level"] == SUPERADMIN:
         return target_level != SUPERADMIN
     return target_level in (None, "viewer")

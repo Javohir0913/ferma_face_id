@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Ferma — Telegram push."""
+"""Ферма — push в Telegram."""
 import logging
 from typing import Any, Dict, Optional
 
@@ -30,7 +30,7 @@ async def _api(method: str, data: Dict[str, Any], files: Optional[Dict[str, Any]
 
 
 async def send_to(chat_id: int | str, text: str, reply_markup: Optional[dict] = None) -> Optional[dict]:
-    """Bitta chatga (odatda shaxsiy) xabar. Token yo'q bo'lsa (lokal test) faqat logga yoziladi."""
+    """Сообщение в один чат (обычно личный). Если токена нет (локальный тест) — только пишется в лог."""
     if not TG_TOKEN:
         logger.info("TG_TOKEN yo'q — [%s] ga yuborilmadi: %s | markup=%s", chat_id, text, reply_markup)
         return None
@@ -45,7 +45,7 @@ async def send_to(chat_id: int | str, text: str, reply_markup: Optional[dict] = 
 
 
 def rich_to_plain(html_text: str) -> str:
-    """sendRichMessage rad etilsa: <table> qatorlarga, faqat <b>/<i> qoladi."""
+    """Если sendRichMessage отклонён: <table> превращается в строки, остаются только <b>/<i>."""
     import re
     t = html_text
     t = re.sub(r"<caption>(.*?)</caption>", r"<b>\1</b>\n", t, flags=re.S)
@@ -60,7 +60,7 @@ def rich_to_plain(html_text: str) -> str:
 
 
 async def send_rich(chat_id: int | str, html_text: str, reply_markup: Optional[dict] = None) -> Optional[dict]:
-    """Haqiqiy HTML jadval (<table>) bilan xabar — sendRichMessage; bo'lmasa oddiy matn."""
+    """Сообщение с настоящей HTML-таблицей (<table>) — sendRichMessage; иначе обычный текст."""
     if not TG_TOKEN:
         logger.info("TG_TOKEN yo'q — [%s] ga rich yuborilmadi:\n%s", chat_id, rich_to_plain(html_text))
         return None
@@ -75,7 +75,7 @@ async def send_rich(chat_id: int | str, html_text: str, reply_markup: Optional[d
         logger.exception("sendRichMessage xato — oddiy matnga o'tildi")
     plain = rich_to_plain(html_text)
     out = None
-    # 4096 belgidan uzun bo'lsa — qismlarga bo'lib yuboriladi (tugma oxirgisida).
+    # Если длиннее 4096 символов — отправляется частями (кнопка в последней).
     chunks, cur = [], ""
     for line in plain.split("\n"):
         if len(cur) + len(line) + 1 > 3900:

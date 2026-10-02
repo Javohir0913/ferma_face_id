@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Ferma — Hikvision Face ID terminal (HTTP Listening) event'ini parse qilish.
+Ферма — разбор события терминала Hikvision Face ID (HTTP Listening).
 
-Qurilma XML ham, JSON ham yuborishi mumkin (`multipart/form-data`, matn
-qismi + ixtiyoriy JPEG rasm qismi). Har ikkisini ham qo'llab-quvvatlaymiz,
-strukturaviy parsing ishlamasa xom baytlardan qidirib topamiz — hech qachon
-butunlay bo'sh qaytmaslik uchun, `raw_data` doim to'liq saqlanadi.
+Устройство может слать и XML, и JSON (`multipart/form-data`, текстовая
+часть + необязательная часть с JPEG). Поддерживаем оба варианта,
+если структурный разбор не сработал — ищем в сырых байтах, чтобы никогда
+не возвращать совсем пустой результат; `raw_data` всегда сохраняется полностью.
 """
 import json
 import re
@@ -37,7 +37,7 @@ def _extract_xml_from_raw(raw: bytes) -> Optional[str]:
 
 
 def _parse_multipart(content_type: str, raw_body: bytes) -> Tuple[Optional[str], Optional[str], Optional[bytes], Optional[str]]:
-    """(text_payload, payload_format, image_bytes, image_name) qaytaradi."""
+    """Возвращает (text_payload, payload_format, image_bytes, image_name)."""
     header = f"Content-Type: {content_type}\r\n\r\n".encode("ascii", errors="ignore")
     msg = BytesParser(policy=policy.compat32).parsebytes(header + raw_body)
 
@@ -72,7 +72,7 @@ def _parse_multipart(content_type: str, raw_body: bytes) -> Tuple[Optional[str],
 
 
 def parse_event(content_type: str, raw_body: bytes) -> Tuple[Optional[str], Optional[str], Optional[bytes], Optional[str]]:
-    """(text_payload, payload_format, image_bytes, image_name) qaytaradi."""
+    """Возвращает (text_payload, payload_format, image_bytes, image_name)."""
     content_type_l = (content_type or "").lower()
     text_payload = None
     payload_format = None
@@ -175,8 +175,8 @@ def parse_xml_fields(xml_text: str) -> dict:
 
 
 def parse_json_fields(json_text: str) -> dict:
-    """DS-K1T343EWX kabi qurilmalar XML o'rniga JSON yuboradi (multipart
-    qismi `event_log`, ichida `AccessControllerEvent` obyekti nested holda)."""
+    """Устройства вроде DS-K1T343EWX шлют JSON вместо XML (multipart-
+    часть `event_log`, внутри вложенный объект `AccessControllerEvent`)."""
     if not json_text:
         return {}
     try:
@@ -216,10 +216,10 @@ def parse_json_fields(json_text: str) -> dict:
     verify_mode = _get("currentVerifyMode")
     status_value = _get("statusValue")
 
-    # "invalid" verifyMode + xodim/ism yo'q — bu haqiqiy yuz tanish natijasi
-    # emas, balki qurilmaning oraliq/administrativ signali. Bunday holatda
-    # hech qanday xabar yuborilmaydi va DB'ga ham yozilmaydi (spam'ning oldi
-    # olinadi — bitrix24_and_sap/v3/hikvision'da amalda tasdiqlangan yechim).
+    # verifyMode «invalid» + нет сотрудника/имени — это не настоящий результат распознавания,
+    # а промежуточный/служебный сигнал устройства. В этом случае
+    # никакое сообщение не отправляется и в БД не записывается (защита
+    # от спама — решение, проверенное на практике в bitrix24_and_sap/v3/hikvision).
     has_outcome = matched or (verify_mode not in (None, "invalid"))
     serial_no = _get("serialNo")
     serial_no = str(serial_no) if serial_no is not None else None

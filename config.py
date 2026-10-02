@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Ferma — 2 ta Hikvision Face ID terminal (KIRISH + CHIQISH) event qabul
-qiluvchi standalone FastAPI loyiha. Sozlamalar muhit o'zgaruvchilaridan
-(.env) o'qiladi — production maxfiy ma'lumotlarni koddan tashqarida
-saqlash uchun.
+Ферма — standalone-проект на FastAPI, принимающий события от 2 терминалов
+Hikvision Face ID (ВХОД + ВЫХОД). Настройки читаются из переменных окружения
+(.env) — чтобы секреты production хранились вне кода.
 """
 import os
 
@@ -15,18 +14,18 @@ load_dotenv()
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHATS = [c.strip() for c in (os.getenv("TG_CHATS") or "").split(",") if c.strip()]
 
-# --- Kameralardan ruxsat etilgan IP'lar (bo'sh = tekshiruv o'chiq) ---
-# Kamera CG-NAT/dinamik IP orqali kelishi mumkin — shunday bo'lsa bo'sh qoldiring.
+# --- Разрешённые IP камер (пусто = проверка отключена) ---
+# Камера может приходить через CG-NAT/динамический IP — в этом случае оставьте пустым.
 ALLOWED_IPS = [ip.strip() for ip in (os.getenv("ALLOWED_IPS") or "").split(",") if ip.strip()]
 
-# --- Fayl/DB yo'llari ---
+# --- Пути к файлам/БД ---
 SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", "static/snapshots")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/app.db")
 
-# --- Spam-oldi sozlamalari ---
-# Bitta gate (kirish/chiqish) uchun "Noma'lum odam" xabari shu oraliqda
-# faqat bitta marta yuboriladi — kamera bir kishi oldida davomiy turganda
-# yoki tarmoq xatosi tufayli qayta-qayta urinib push qilganda spam bo'lmasin.
+# --- Защита от спама ---
+# Сообщение «Неизвестный человек» для одного gate (вход/выход) отправляется
+# не чаще одного раза за этот интервал — чтобы не было спама, когда человек
+# долго стоит перед камерой или камера повторно отправляет push из-за сбоя сети.
 UNMATCHED_ALERT_DEBOUNCE_SEC = int(os.getenv("UNMATCHED_ALERT_DEBOUNCE_SEC", "15"))
 
 
@@ -34,21 +33,21 @@ def _ids(name: str) -> list[int]:
     return [int(x) for x in (os.getenv(name) or "").replace(" ", "").split(",") if x.lstrip("-").isdigit()]
 
 
-# --- Davomat hisoboti (Mini App + Web) ---
+# --- Отчёт посещаемости (Mini App + Web) ---
 TIMEZONE = "Asia/Tashkent"
-# Sessiya cookie/token imzosi uchun. Bo'sh bo'lsa auth ishlamaydi.
+# Для подписи cookie/токена сессии. Если пусто — авторизация не работает.
 SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", "12"))
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1") != "0"
-# Faqat lokal test uchun: Telegram'siz kirish (/api/davomat/auth/dev). Serverda 0 bo'lishi shart.
+# Только для локального теста: вход без Telegram (/api/davomat/auth/dev). На сервере обязательно 0.
 DEV_LOGIN = os.getenv("DEV_LOGIN", "0") == "1"
-# Yagona super admin — faqat shu yerdan belgilanadi (ishga tushishda bazaga yoziladi).
+# Единственный суперадмин — задаётся только здесь (записывается в базу при запуске).
 SUPERADMIN_TELEGRAM_ID = (_ids("SUPERADMIN_TELEGRAM_ID") or [None])[0]
-# Birinchi adminlar (keyin super admin admin sahifasidan qo'shadi).
+# Первые админы (дальше суперадмин добавляет их на странице администрирования).
 ADMIN_TELEGRAM_IDS = _ids("ADMIN_TELEGRAM_IDS")
-# https://api.ravnaqfarm.uz — Mini App va Login Widget uchun HTTPS manzil.
+# https://api.ravnaqfarm.uz — HTTPS-адрес для Mini App и Login Widget.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@")
-# BotFather'da /newapp qilingan bo'lsa: https://t.me/<bot>/<app> (guruhdagi tugma uchun).
+# Если в BotFather сделан /newapp: https://t.me/<bot>/<app> (для кнопки в группе).
 MINIAPP_LINK = os.getenv("MINIAPP_LINK", "")
 CHECKIN_PHOTO_DIR = os.getenv("CHECKIN_PHOTO_DIR", "data/checkins")

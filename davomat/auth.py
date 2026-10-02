@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Autentifikatsiya: Telegram Mini App initData, Telegram Login Widget va
-imzolangan sessiya tokeni. Frontenddan kelgan user_id'ga hech qachon
-ishonilmaydi — faqat bot token bilan tekshirilgan ma'lumotga.
+Авторизация: initData Telegram Mini App, Telegram Login Widget и
+подписанный токен сессии. user_id, пришедшему с фронтенда, никогда
+не доверяем — только данным, проверенным токеном бота.
 """
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ async def current_actor(request: Request) -> dict:
     dl = request.query_params.get("dl")
     try:
         if dl and not token:
-            # Telegram downloadFile uchun: faqat bitta yo'lga, 2 daqiqa amal qiladigan token.
+            # Для Telegram downloadFile: токен только для одного пути, действует 2 минуты.
             data = read_token(dl)
             if data.get("p") != request.url.path:
                 raise AuthError("havola boshqa fayl uchun")
@@ -145,7 +145,7 @@ async def current_actor(request: Request) -> dict:
     except AuthError:
         raise HTTPException(401, "Avtorizatsiya kerak")
     uid = int(data["uid"])
-    # Ruxsat har so'rovda bazadan olinadi — olib tashlangan foydalanuvchi darhol chetlanadi.
+    # Права берутся из базы при каждом запросе — удалённый пользователь сразу теряет доступ.
     u = await database.fetch_one(select(app_users).where(app_users.c.telegram_user_id == uid))
     e = await database.fetch_one(select(employees).where(employees.c.telegram_user_id == uid))
     return {
@@ -160,7 +160,7 @@ async def current_actor(request: Request) -> dict:
 
 SUPERADMIN = "superadmin"
 ADMIN_LEVELS = ("admin", SUPERADMIN)
-# Boshqalarning davomatini faqat adminlar ko'radi; qolganlar faqat o'zinikini (/my).
+# Посещаемость других видят только админы; остальные — только свою (/my).
 VIEW_LEVELS = ADMIN_LEVELS
 
 
